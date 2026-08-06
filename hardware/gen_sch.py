@@ -148,7 +148,11 @@ mk("D_Schottky", [ (1,"A","passive"),(2,"K","passive") ])
 mk("LED", [ (1,"A","passive"),(2,"K","passive") ])
 mk("SW_PUSH", [ (1,"1","passive"),(2,"2","passive") ])
 mk("Conn_JST_PH_2", [ (1,"1","passive"),(2,"2","passive") ])
-mk("USBLC6_ESD", [ (1,"IO1","passive"),(2,"GND","power_in"),(3,"VBUS","power_in"),(4,"IO2","passive") ])
+# USBLC6-2SC6 ESD TVS, SOT-23-6 real pinout: 1=I/O1 2=GND 3=I/O2 4=I/O2 5=VBUS 6=I/O1
+mk("USBLC6_ESD", [
+    (1,"IO1","passive"),(2,"GND","power_in"),(3,"IO2","passive"),
+    (4,"IO2","passive"),(5,"VBUS","power_in"),(6,"IO1","passive"),
+])
 
 # generic headers
 mk("Conn_1x04", [ (i+1, str(i+1), "passive") for i in range(4) ])
@@ -192,16 +196,19 @@ add("J1", "AES200200A00 FPC", "EPD_AES200200A00", {
 }, fp="Connector_FFC-FPC:Hirose_FH12-24S-0.5SH_1x24-1MP_P0.50mm_Horizontal")
 
 # --- USB-C receptacle ---
+# Footprint left blank: this is a simplified logical 9-pin symbol; a real USB-C
+# receptacle uses A/B-numbered pads, so the footprint must be chosen together
+# with a matching symbol at layout time.
 add("J2", "USB-C", "USB_C_Receptacle", {
     1:"VBUS", 2:"GND", 3:"CC1", 4:"CC2", 5:"USB_DP", 6:"USB_DM",
     7:NC, 8:NC, 9:"GND",
-}, fp="Connector_USB:USB_C_Receptacle_GCT_USB4085")
+}, fp="")
 add("R1", "5.1k", "R", {1:"CC1", 2:"GND"})
 add("R2", "5.1k", "R", {1:"CC2", 2:"GND"})
 add("R3", "22", "R", {1:"USB_DP", 2:"USB_DP_MCU"})
 add("R4", "22", "R", {1:"USB_DM", 2:"USB_DM_MCU"})
 add("D1", "USBLC6-2SC6 (optional)", "USBLC6_ESD",
-    {1:"USB_DP", 2:"GND", 3:"VBUS", 4:"USB_DM"},
+    {1:"USB_DP", 2:"GND", 3:"USB_DM", 4:"USB_DM", 5:"VBUS", 6:"USB_DP"},
     fp="Package_TO_SOT_SMD:SOT-23-6", dnp=True)
 
 # --- MCP73831 charger ---
@@ -246,9 +253,11 @@ add("Q1", "Si1304BDL / NX3008NBK", "MOSFET_N",
     {1:"EPD_GDR", 2:"EPD_RESE", 3:"EPD_SW"},
     fp="Package_TO_SOT_SMD:SOT-23")
 add("R11", "2.2", "R", {1:"EPD_RESE", 2:"GND"})       # RESE sense resistor
-add("D3", "MBR0530", "D_Schottky", {1:"EPD_SW", 2:"EPD_VGH"})
-add("D4", "MBR0530", "D_Schottky", {1:"GND", 2:"EPD_CPMID"})
-add("D5", "MBR0530", "D_Schottky", {1:"EPD_CPMID", 2:"EPD_VGL"})
+# diode orientation per datasheet reference circuit (p.24): D3=boost rectifier
+# (SW->VGH); D4/D5 form the inverting charge pump for the negative VGL rail.
+add("D3", "MBR0530", "D_Schottky", {1:"EPD_SW", 2:"EPD_VGH"})     # ds D1: anode SW  -> cathode VGH
+add("D4", "MBR0530", "D_Schottky", {1:"EPD_CPMID", 2:"GND"})      # ds D2: anode CPMID -> cathode GND
+add("D5", "MBR0530", "D_Schottky", {1:"EPD_VGL", 2:"EPD_CPMID"})  # ds D3: anode VGL -> cathode CPMID
 add("C9",  "1uF/25V", "C", {1:"EPD_SW", 2:"EPD_CPMID"})   # flying cap (ref C3)
 add("C10", "1uF/25V", "C", {1:"EPD_VGH", 2:"GND"})        # ref C2
 add("C11", "1uF/25V", "C", {1:"EPD_VGL", 2:"GND"})        # ref C4
@@ -287,20 +296,29 @@ add("#FLG2", "PWR_FLAG", "PWR_FLAG", {1:"GND"},  in_bom=False)
 # ----------------------------------------------------------------------------
 # Emit schematic
 # ----------------------------------------------------------------------------
-out = []
-out.append('(kicad_sch (version 20231120) (generator "epaper_gen")')
-out.append(f'  (uuid "{ROOT_UUID}")')
-out.append('  (paper "A2")')
-out.append('  (lib_symbols')
-for name in symdefs:
-    out.append(symdefs[name].lib_sexpr())
-out.append('  )')
-
 # layout instances on a coarse grid
 COLS = 6
 COL_W = 63.5    # 25 * 2.54
 ROW_H = 76.2    # 30 * 2.54
 X0, Y0 = 50.8, 50.8   # both multiples of 1.27 (keeps every endpoint on grid)
+
+# size the sheet to the content so nothing is clipped off-page.  Use a "User"
+# paper size computed from the grid extent plus room for global-label text.
+ROWS_TOTAL = (len(instances) + COLS - 1) // COLS
+MAX_W = max(sd.width for sd in symdefs.values())
+MAX_H = max(sd.height for sd in symdefs.values())
+LABEL_ROOM = 45.0     # global-label text length allowance
+PAGE_W = X0 + (COLS - 1) * COL_W + MAX_W / 2 + PIN_LEN + GRID + LABEL_ROOM + X0
+PAGE_H = Y0 + (ROWS_TOTAL - 1) * ROW_H + MAX_H / 2 + Y0
+
+out = []
+out.append('(kicad_sch (version 20231120) (generator "epaper_gen")')
+out.append(f'  (uuid "{ROOT_UUID}")')
+out.append(f'  (paper "User" {PAGE_W:.2f} {PAGE_H:.2f})')
+out.append('  (lib_symbols')
+for name in symdefs:
+    out.append(symdefs[name].lib_sexpr())
+out.append('  )')
 
 wire_lines = []
 label_lines = []

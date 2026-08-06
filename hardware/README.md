@@ -325,7 +325,12 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 
 - **Footprints and PCB layout are not included yet** — this is a schematic-level
   deliverable. Footprint fields are pre-filled with sensible KiCad standard
-  library footprints as a starting point for when layout begins.
+  library footprints as a starting point for when layout begins. Exception:
+  `J2` (USB-C) uses a simplified logical 9-pin symbol and is deliberately left
+  with **no footprint** — a real receptacle uses A/B-numbered pads, so its
+  footprint must be chosen together with a matching symbol at layout time. `D1`
+  (USBLC6-2SC6) uses the real SOT-23-6 pinout (1/6=I/O1, 3/4=I/O2, 2=GND,
+  5=VBUS) so it maps correctly to `SOT-23-6`.
 - Component placement in the schematic is auto-generated and rough; connectivity
   is by global label and is correct (verified by KiCad 8 ERC + netlist export).
 
