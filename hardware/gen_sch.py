@@ -347,10 +347,14 @@ LABEL_SHAPE = {
     "bidirectional": "bidirectional",
 }
 
-def place_label(x, y, net, ang, shape="passive"):
+def place_label(x, y, net, ang, shape="passive", justify=None):
+    # text extends away from the symbol: right-side labels (ang 0) are left
+    # justified, left-side labels (ang 180) are right justified
+    if justify is None:
+        justify = "right" if int(ang) == 180 else "left"
     label_lines.append(
         f'  (global_label "{net}" (shape {shape}) (at {x:.3f} {y:.3f} {ang}) (fields_autoplaced)\n'
-        f'    (effects (font (size 1.27 1.27)) (justify left))\n'
+        f'    (effects (font (size 1.27 1.27)) (justify {justify}))\n'
         f'    (uuid "{U()}"))'
     )
 
@@ -396,9 +400,11 @@ for idx, inst in enumerate(instances):
         if side == 'L':
             ex = cx - GRID
             lab_ang = 180
+            lab_justify = 'right'
         else:
             ex = cx + GRID
             lab_ang = 0
+            lab_justify = 'left'
         ey = cy
         if net is None:
             # no-connect flag at the pin tip
@@ -408,7 +414,7 @@ for idx, inst in enumerate(instances):
             f'  (wire (pts (xy {cx:.3f} {cy:.3f}) (xy {ex:.3f} {ey:.3f}))\n'
             f'    (stroke (width 0) (type default)) (uuid "{U()}"))'
         )
-        place_label(ex, ey, net, lab_ang, LABEL_SHAPE.get(et, "passive"))
+        place_label(ex, ey, net, lab_ang, LABEL_SHAPE.get(et, "passive"), lab_justify)
 
 out.extend(sym_lines)
 out.extend(wire_lines)
