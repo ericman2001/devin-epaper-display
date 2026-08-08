@@ -328,7 +328,8 @@ MAX_W = max(sd.width for sd in symdefs.values())
 MAX_H = max(sd.height for sd in symdefs.values())
 LABEL_ROOM = 45.0     # global-label text length allowance
 PAGE_W = X0 + (COLS - 1) * COL_W + MAX_W / 2 + PIN_LEN + GRID + LABEL_ROOM + X0
-PAGE_H = Y0 + (ROWS_TOTAL - 1) * ROW_H + MAX_H / 2 + Y0
+NOTE_Y = Y0 + ROWS_TOTAL * ROW_H
+PAGE_H = NOTE_Y + max(MAX_H / 2, GRID) + Y0
 
 out = []
 out.append('(kicad_sch (version 20231120) (generator "epaper_gen")')
@@ -365,11 +366,9 @@ def place_label(x, y, net, ang, shape="passive", justify=None):
 def place_text(x, y, text):
     text_lines.append(
         f'  (text "{text}" (exclude_from_sim no) (at {x:.3f} {y:.3f} 0)\n'
-        f'    (effects (font (size 1.27 1.27)) (justify left)))'
+        f'    (effects (font (size 1.27 1.27)) (justify left))\n'
+        f'    (uuid "{U()}"))'
     )
-
-place_text(241.300, 558.800,
-           "J6 IO35-37 and IO47/48 assume non-octal-PSRAM, non-R16V module")
 
 for idx, inst in enumerate(instances):
     sd = symdefs[inst["lib"]]
@@ -428,6 +427,9 @@ for idx, inst in enumerate(instances):
             f'    (stroke (width 0) (type default)) (uuid "{U()}"))'
         )
         place_label(ex, ey, net, lab_ang, LABEL_SHAPE.get(et, "passive"), lab_justify)
+
+place_text(X0, NOTE_Y,
+           "J6 IO35-37 and IO47/48 assume non-octal-PSRAM, non-R16V module")
 
 out.extend(sym_lines)
 out.extend(wire_lines)

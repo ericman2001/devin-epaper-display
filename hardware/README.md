@@ -261,7 +261,7 @@ Strapping-pin defaults are from the ESP32-S3-WROOM-1 datasheet Table 4-1
 |-----|---------|
 | `VBUS` | USB-C VBUS, MCP73831 VDD, `C1`, TVS `D1`, `#FLG1` |
 | `VBAT` | MCP73831 VBAT, MCP1825S VIN, JST `J3`, `C2`, `C3`, `R9` (sense) |
-| `+3V3` | MCP1825S VOUT, module 3V3, display VCI/VDDIO/VPP, `C4/C5/C6/C12`, `R7/R8/R14`, header power |
+| `+3V3` | MCP1825S VOUT, module 3V3, display VCI/VDDIO/VPP, `C4/C5/C6/C12`, `R6/R7/R8/R12/R13/R14`, header power |
 | `GND` | common ground / all decoupling returns / SOT-223 & module GND pads / `#FLG2` |
 
 `#FLG1`/`#FLG2` are `PWR_FLAG`s (not real parts) marking `VBUS`/`GND` as
