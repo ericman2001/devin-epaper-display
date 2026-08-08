@@ -181,12 +181,12 @@ def add(ref, value, lib, nets, fp="", dnp=False, in_bom=True):
     instances.append(dict(ref=ref, value=value, lib=lib, nets=nets, fp=fp, dnp=dnp, in_bom=in_bom))
 
 # --- ESP32-S3-WROOM-1 ---
-add("U1", "ESP32-S3-WROOM-1", "ESP32-S3-WROOM-1", {
+add("U1", "ESP32-S3-WROOM-1-N8", "ESP32-S3-WROOM-1", {
     1:"GND", 2:"+3V3", 3:"EN",
     4:"EPD_SCLK", 5:"EPD_MOSI", 6:"EPD_CS", 7:"EPD_DC",
     8:"EXP_IO15", 9:"EXP_IO16", 10:"EXP_IO17", 11:"EXP_IO18",
     12:"EPD_RST", 13:"USB_DM_MCU", 14:"USB_DP_MCU",
-    15:NC, 16:NC, 17:"EPD_BUSY",
+    15:"STRAP_IO3", 16:NC, 17:"EPD_BUSY",
     18:"EXP_IO10", 19:"EXP_IO11", 20:"EXP_IO12", 21:"EXP_IO13", 22:"EXP_IO14",
     23:"EXP_IO21", 24:"EXP_IO47", 25:"EXP_IO48", 26:NC, 27:"BOOT",
     28:"EXP_IO35", 29:"EXP_IO36", 30:"EXP_IO37", 31:"EXP_IO38", 32:"EXP_IO39",
@@ -251,6 +251,8 @@ add("SW1", "EN/RESET", "SW_PUSH", {1:"EN", 2:"GND"},
 add("R8", "10k", "R", {1:"+3V3", 2:"BOOT"}, fp=FP_R)
 add("SW2", "BOOT", "SW_PUSH", {1:"BOOT", 2:"GND"},
     fp="Button_Switch_SMD:SW_SPST_B3U-1000P")
+add("R14", "10k", "R", {1:"+3V3", 2:"EPD_CS"}, fp=FP_R)
+add("R15", "10k (DNP)", "R", {1:"STRAP_IO3", 2:"GND"}, fp=FP_R, dnp=True)
 
 # --- Battery sense divider (into ADC1_CH0 / GPIO1) ---
 add("R9", "100k", "R", {1:"VBAT", 2:"VBAT_SENSE"}, fp=FP_R)
@@ -338,6 +340,7 @@ out.append('  )')
 
 wire_lines = []
 label_lines = []
+text_lines = []
 nc_lines = []
 sym_lines = []
 
@@ -357,6 +360,15 @@ def place_label(x, y, net, ang, shape="passive", justify=None):
         f'    (effects (font (size 1.27 1.27)) (justify {justify}))\n'
         f'    (uuid "{U()}"))'
     )
+
+def place_text(x, y, text):
+    text_lines.append(
+        f'  (text "{text}" (exclude_from_sim no) (at {x:.3f} {y:.3f} 0)\n'
+        f'    (effects (font (size 1.27 1.27)) (justify left)))'
+    )
+
+place_text(241.300, 558.800,
+           "J6 IO35-37 and IO47/48 assume non-octal-PSRAM, non-R16V module")
 
 for idx, inst in enumerate(instances):
     sd = symdefs[inst["lib"]]
@@ -420,6 +432,7 @@ out.extend(sym_lines)
 out.extend(wire_lines)
 out.extend(nc_lines)
 out.extend(label_lines)
+out.extend(text_lines)
 
 # sheet instances block
 out.append('  (sheet_instances')

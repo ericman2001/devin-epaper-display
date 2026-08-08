@@ -1,6 +1,6 @@
 # E-Paper Display — Hardware (KiCad schematic)
 
-Battery-powered 1.54" e-paper display built around the **ESP32-S3-WROOM-1** module.
+Battery-powered 1.54" e-paper display built around the **ESP32-S3-WROOM-1-N8** module.
 This directory contains a **schematic only** — no PCB layout yet, but every
 component carries a footprint.
 
@@ -48,7 +48,7 @@ KiCad and rearrange/route as desired.
                                                                               |
                         +-----------------------------------------------------+
                         |                                                     |
-              ESP32-S3-WROOM-1 (3V3)                          AES200200A00 e-paper (VCI/VDDIO)
+              ESP32-S3-WROOM-1-N8 (3V3)                        AES200200A00 e-paper (VCI/VDDIO)
               + 100nF + 10uF decoupling                       + on-FPC DC/DC boost & charge pump
 ```
 
@@ -119,10 +119,12 @@ side-castellation solderable with a fine-tip iron.
   **left unsoldered or served by a via** — no reflow/hot-air is needed to make
   the module functional. (For thermal/RF margin in a final product you can add a
   via and touch it with the iron, but it is optional.)
-- Uses the **base ESP32-S3-WROOM-1** (quad SPI flash, no PSRAM). GPIO26–32 are
+- Uses the **ESP32-S3-WROOM-1-N8** (quad SPI flash, no PSRAM). GPIO26–32 are
   internal to the module (SPI flash) and are not broken out. On PSRAM variants
-  (`-N8R8` / `R16V`) GPIO35–37 are consumed by the PSRAM; those variants are not
-  used here, so GPIO35–37 are free and are exposed on the expansion header.
+  (`-N8R8` / `-N16R16V`) GPIO35–37 are consumed by the PSRAM; those variants are
+  not used here, so GPIO35–37 are free and are exposed on the expansion header.
+  GPIO47/48 also assume a non-`R16V` variant because `-N16R16V` uses 1.8 V I/O
+  on those pins.
 
 ### Module support circuitry
 
@@ -131,7 +133,9 @@ side-castellation solderable with a fine-tip iron.
 | 3V3 decoupling | `C5` 100nF + `C6` 10µF | at the 3V3 pin |
 | Reset (EN) | `R7` 10k pull-up to 3V3, `C7` 1µF to GND, `SW1` to GND | RC power-on reset + optional EN/RESET button. *Do not leave EN floating.* |
 | Boot strap | `R8` 10k pull-up to 3V3 on **GPIO0**, `SW2` (BOOT) to GND | S3 download-boot strap is **GPIO0** |
-| GPIO45 / GPIO46 / GPIO3 | left at datasheet default | strapping pins — see §7 |
+| E-paper CS | `R14` 10k pull-up to 3V3 on **GPIO6** | keeps the panel deselected during reset/power-up |
+| GPIO45 / GPIO46 | left at datasheet default | strapping pins — see §7 |
+| GPIO3 | `R15` 10k pull-down (**DNP**) | optional strap pad; see §7 |
 
 ---
 
@@ -223,7 +227,7 @@ these pins may be left **Open** when not in use).
 |-------------|--------|-----|----------|
 | 13 | SCL (SCLK) | `EPD_SCLK` | **GPIO4** |
 | 14 | SDA (MOSI) | `EPD_MOSI` | **GPIO5** |
-| 12 | CS# | `EPD_CS` | **GPIO6** |
+| 12 | CS# | `EPD_CS` | **GPIO6** (`R14` 10 kΩ pull-up) |
 | 11 | D/C# | `EPD_DC` | **GPIO7** |
 | 10 | RES# | `EPD_RST` | **GPIO8** |
 | 9 | BUSY | `EPD_BUSY` | **GPIO9** (input) |
@@ -245,7 +249,7 @@ these pins may be left **Open** when not in use).
 | UART0 TXD/RXD | **GPIO43 / GPIO44** | optional console header `J5` |
 | VDD_SPI strap | **GPIO45** | left at default (weak pull-down = 0); NC |
 | ROM-msg / boot strap | **GPIO46** | left at default (weak pull-down = 0); NC |
-| JTAG-source strap | **GPIO3** | left at default (floating); NC |
+| JTAG-source strap | **GPIO3** | optional `R15` 10 kΩ pull-down (**DNP**); `STRAP_IO3` |
 
 Strapping-pin defaults are from the ESP32-S3-WROOM-1 datasheet Table 4-1
 (GPIO0 = weak pull-up 1, GPIO3 = floating, GPIO45/46 = weak pull-down 0).
@@ -256,7 +260,7 @@ Strapping-pin defaults are from the ESP32-S3-WROOM-1 datasheet Table 4-1
 |-----|---------|
 | `VBUS` | USB-C VBUS, MCP73831 VDD, `C1`, TVS `D1`, `#FLG1` |
 | `VBAT` | MCP73831 VBAT, MCP1825S VIN, JST `J3`, `C2`, `C3`, `R9` (sense) |
-| `+3V3` | MCP1825S VOUT, module 3V3, display VCI/VDDIO/VPP, `C4/C5/C6/C12`, pull-ups, header power |
+| `+3V3` | MCP1825S VOUT, module 3V3, display VCI/VDDIO/VPP, `C4/C5/C6/C12`, `R7/R8/R14`, header power |
 | `GND` | common ground / all decoupling returns / SOT-223 & module GND pads / `#FLG2` |
 
 `#FLG1`/`#FLG2` are `PWR_FLAG`s (not real parts) marking `VBUS`/`GND` as
@@ -277,7 +281,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 
 | Ref | Value / Part number | Package / mounting |
 |-----|--------------------|--------------------|
-| U1 | ESP32-S3-WROOM-1 (base, N-flash) | **Castellated module** (bottom pad optional) |
+| U1 | ESP32-S3-WROOM-1-N8 (quad flash, no PSRAM) | **Castellated module** (bottom pad optional) |
 | U2 | MCP73831T-2ACI/OT (4.2 V) | **SOT-23-5** (hand-solderable SMD) |
 | U3 | **MCP1825S-3302E/DB** (3.3 V, 500 mA LDO) | **SOT-223-3** (hand-solderable SMD, tab = GND) |
 | Q1 | Si1304BDL / NX3008NBK N-MOSFET | **SOT-23** |
@@ -293,6 +297,8 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | R9,R10 | 100 kΩ (battery-sense divider) | 0805 |
 | R11 | 2.2 Ω 1% (RESE sense) | 0805 |
 | R12,R13 | 10 kΩ (I²C temp pull-ups, **DNP**) | 0805 |
+| R14 | 10 kΩ (EPD CS pull-up) | 0805 |
+| R15 | 10 kΩ (GPIO3 pull-down, **DNP**) | 0805 |
 | C1,C2 | 4.7 µF (charger in/out) | 0805 X7R |
 | C3,C4 | 4.7 µF (LDO in/out) | 0805 X7R |
 | C5 | 100 nF (module decoupling) | 0805 |
@@ -317,7 +323,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 
 - **No reflow, no hot-air, no solder stencil is required.** Every part is
   attachable with a fine-tip soldering iron.
-- Solder the **ESP32-S3-WROOM-1** via its edge castellations (drag-solder). Its
+- Solder the **ESP32-S3-WROOM-1-N8** via its edge castellations (drag-solder). Its
   **bottom GND/thermal pad is redundant and may be left unsoldered** (GND is on
   castellations 1 & 40) — no reflow needed.
 - Solder the **MCP1825S SOT-223 tab (pin 2, GND)** flat onto a GND copper pour
