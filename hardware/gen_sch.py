@@ -168,6 +168,14 @@ mk("PWR_FLAG", [ (1, "pwr", "power_out") ])
 # ----------------------------------------------------------------------------
 NC = None  # marks a no-connect
 
+# default footprints for the generic passive symbols.  0805 throughout: this is
+# a hand-soldered board (see README), and 0805 is the smallest chip package that
+# is comfortable with a fine-tip iron.
+FP_R = "Resistor_SMD:R_0805_2012Metric"
+FP_C = "Capacitor_SMD:C_0805_2012Metric"
+FP_D_SOD123 = "Diode_SMD:D_SOD-123"
+FP_L_1210 = "Inductor_SMD:L_1210_3225Metric"
+
 instances = []
 def add(ref, value, lib, nets, fp="", dnp=False, in_bom=True):
     instances.append(dict(ref=ref, value=value, lib=lib, nets=nets, fp=fp, dnp=dnp, in_bom=in_bom))
@@ -196,17 +204,19 @@ add("J1", "AES200200A00 FPC", "EPD_AES200200A00", {
 }, fp="Connector_FFC-FPC:Hirose_FH12-24S-0.5SH_1x24-1MP_P0.50mm_Horizontal")
 
 # --- USB-C receptacle ---
-# Footprint left blank: this is a simplified logical 9-pin symbol; a real USB-C
-# receptacle uses A/B-numbered pads, so the footprint must be chosen together
-# with a matching symbol at layout time.
+# TODO(layout): this is a simplified logical 9-pin symbol, while the GCT
+# USB4085 receptacle has A/B-numbered pads (A1..A12 / B1..B12 plus shield
+# tabs).  The symbol pins therefore do NOT map 1:1 to the physical pads --
+# verify/repair the pad assignment (and pair CC1/CC2, D+/D-, VBUS, GND across
+# both rows) when laying out the PCB, or swap in the stock KiCad USB-C symbol.
 add("J2", "USB-C", "USB_C_Receptacle", {
     1:"VBUS", 2:"GND", 3:"CC1", 4:"CC2", 5:"USB_DP", 6:"USB_DM",
     7:NC, 8:NC, 9:"GND",
-}, fp="")
-add("R1", "5.1k", "R", {1:"CC1", 2:"GND"})
-add("R2", "5.1k", "R", {1:"CC2", 2:"GND"})
-add("R3", "22", "R", {1:"USB_DP", 2:"USB_DP_MCU"})
-add("R4", "22", "R", {1:"USB_DM", 2:"USB_DM_MCU"})
+}, fp="Connector_USB:USB_C_Receptacle_GCT_USB4085")
+add("R1", "5.1k", "R", {1:"CC1", 2:"GND"}, fp=FP_R)
+add("R2", "5.1k", "R", {1:"CC2", 2:"GND"}, fp=FP_R)
+add("R3", "22", "R", {1:"USB_DP", 2:"USB_DP_MCU"}, fp=FP_R)
+add("R4", "22", "R", {1:"USB_DM", 2:"USB_DM_MCU"}, fp=FP_R)
 add("D1", "USBLC6-2SC6 (optional)", "USBLC6_ESD",
     {1:"USB_DP", 2:"GND", 3:"USB_DM", 4:"USB_DM", 5:"VBUS", 6:"USB_DP"},
     fp="Package_TO_SOT_SMD:SOT-23-6", dnp=True)
@@ -215,12 +225,12 @@ add("D1", "USBLC6-2SC6 (optional)", "USBLC6_ESD",
 add("U2", "MCP73831T-2ACI/OT", "MCP73831", {
     1:"CHG_STAT", 2:"GND", 3:"VBAT", 4:"VBUS", 5:"CHG_PROG",
 }, fp="Package_TO_SOT_SMD:SOT-23-5")
-add("R5", "4.7k", "R", {1:"CHG_PROG", 2:"GND"})       # I_chg = 1000/4.7k ~= 213 mA
-add("R6", "1k", "R", {1:"+3V3", 2:"CHG_LED"})
+add("R5", "4.7k", "R", {1:"CHG_PROG", 2:"GND"}, fp=FP_R)  # I_chg = 1000/4.7k ~= 213 mA
+add("R6", "1k", "R", {1:"+3V3", 2:"CHG_LED"}, fp=FP_R)
 add("D2", "LED (charge)", "LED", {1:"CHG_LED", 2:"CHG_STAT"},
     fp="LED_THT:LED_D3.0mm")
-add("C1", "4.7uF", "C", {1:"VBUS", 2:"GND"})          # charger input
-add("C2", "4.7uF", "C", {1:"VBAT", 2:"GND"})          # charger output
+add("C1", "4.7uF", "C", {1:"VBUS", 2:"GND"}, fp=FP_C)   # charger input
+add("C2", "4.7uF", "C", {1:"VBAT", 2:"GND"}, fp=FP_C)   # charger output
 add("J3", "LiPo JST-PH", "Conn_JST_PH_2", {1:"VBAT", 2:"GND"},
     fp="Connector_JST:JST_PH_S2B-PH-K_1x02_P2.00mm_Horizontal")
 
@@ -228,49 +238,49 @@ add("J3", "LiPo JST-PH", "Conn_JST_PH_2", {1:"VBAT", 2:"GND"},
 add("U3", "MCP1825S-3302E/DB", "MCP1825S-3302", {
     1:"VBAT", 2:"GND", 3:"+3V3",
 }, fp="Package_TO_SOT_SMD:SOT-223-3_TabPin2")
-add("C3", "4.7uF", "C", {1:"VBAT", 2:"GND"})          # LDO input  (>=1uF, X7R)
-add("C4", "4.7uF", "C", {1:"+3V3", 2:"GND"})          # LDO output (>=1uF, X7R, ESR<1ohm)
+add("C3", "4.7uF", "C", {1:"VBAT", 2:"GND"}, fp=FP_C)   # LDO input  (>=1uF, X7R)
+add("C4", "4.7uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)   # LDO output (>=1uF, X7R, ESR<1ohm)
 
 # --- MCU support ---
-add("C5", "100nF", "C", {1:"+3V3", 2:"GND"})
-add("C6", "10uF", "C", {1:"+3V3", 2:"GND"})
-add("R7", "10k", "R", {1:"+3V3", 2:"EN"})
-add("C7", "1uF", "C", {1:"EN", 2:"GND"})
+add("C5", "100nF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)
+add("C6", "10uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)
+add("R7", "10k", "R", {1:"+3V3", 2:"EN"}, fp=FP_R)
+add("C7", "1uF", "C", {1:"EN", 2:"GND"}, fp=FP_C)
 add("SW1", "EN/RESET", "SW_PUSH", {1:"EN", 2:"GND"},
     fp="Button_Switch_SMD:SW_SPST_B3U-1000P")
-add("R8", "10k", "R", {1:"+3V3", 2:"BOOT"})
+add("R8", "10k", "R", {1:"+3V3", 2:"BOOT"}, fp=FP_R)
 add("SW2", "BOOT", "SW_PUSH", {1:"BOOT", 2:"GND"},
     fp="Button_Switch_SMD:SW_SPST_B3U-1000P")
 
 # --- Battery sense divider (into ADC1_CH0 / GPIO1) ---
-add("R9", "100k", "R", {1:"VBAT", 2:"VBAT_SENSE"})
-add("R10", "100k", "R", {1:"VBAT_SENSE", 2:"GND"})
-add("C8", "100nF", "C", {1:"VBAT_SENSE", 2:"GND"})
+add("R9", "100k", "R", {1:"VBAT", 2:"VBAT_SENSE"}, fp=FP_R)
+add("R10", "100k", "R", {1:"VBAT_SENSE", 2:"GND"}, fp=FP_R)
+add("C8", "100nF", "C", {1:"VBAT_SENSE", 2:"GND"}, fp=FP_C)
 
 # --- E-paper DC/DC boost + charge pump (reference circuit, datasheet p.24) ---
-add("L1", "47uH", "L", {1:"EPD_SW", 2:"+3V3"})        # VCI = +3V3
+add("L1", "47uH", "L", {1:"EPD_SW", 2:"+3V3"}, fp=FP_L_1210)   # VCI = +3V3
 add("Q1", "Si1304BDL / NX3008NBK", "MOSFET_N",
     {1:"EPD_GDR", 2:"EPD_RESE", 3:"EPD_SW"},
     fp="Package_TO_SOT_SMD:SOT-23")
-add("R11", "2.2", "R", {1:"EPD_RESE", 2:"GND"})       # RESE sense resistor
+add("R11", "2.2", "R", {1:"EPD_RESE", 2:"GND"}, fp=FP_R)   # RESE sense resistor
 # diode orientation per datasheet reference circuit (p.24): D3=boost rectifier
 # (SW->VGH); D4/D5 form the inverting charge pump for the negative VGL rail.
-add("D3", "MBR0530", "D_Schottky", {1:"EPD_SW", 2:"EPD_VGH"})     # ds D1: anode SW  -> cathode VGH
-add("D4", "MBR0530", "D_Schottky", {1:"EPD_CPMID", 2:"GND"})      # ds D2: anode CPMID -> cathode GND
-add("D5", "MBR0530", "D_Schottky", {1:"EPD_VGL", 2:"EPD_CPMID"})  # ds D3: anode VGL -> cathode CPMID
-add("C9",  "1uF/25V", "C", {1:"EPD_SW", 2:"EPD_CPMID"})   # flying cap (ref C3)
-add("C10", "1uF/25V", "C", {1:"EPD_VGH", 2:"GND"})        # ref C2
-add("C11", "1uF/25V", "C", {1:"EPD_VGL", 2:"GND"})        # ref C4
+add("D3", "MBR0530", "D_Schottky", {1:"EPD_SW", 2:"EPD_VGH"}, fp=FP_D_SOD123)     # ds D1: anode SW  -> cathode VGH
+add("D4", "MBR0530", "D_Schottky", {1:"EPD_CPMID", 2:"GND"}, fp=FP_D_SOD123)      # ds D2: anode CPMID -> cathode GND
+add("D5", "MBR0530", "D_Schottky", {1:"EPD_VGL", 2:"EPD_CPMID"}, fp=FP_D_SOD123)  # ds D3: anode VGL -> cathode CPMID
+add("C9",  "1uF/25V", "C", {1:"EPD_SW", 2:"EPD_CPMID"}, fp=FP_C)   # flying cap (ref C3)
+add("C10", "1uF/25V", "C", {1:"EPD_VGH", 2:"GND"}, fp=FP_C)        # ref C2
+add("C11", "1uF/25V", "C", {1:"EPD_VGL", 2:"GND"}, fp=FP_C)        # ref C4
 # rail decoupling caps
-add("C12", "1uF", "C", {1:"+3V3", 2:"GND"})               # VCI/VDDIO (ref C0)
-add("C13", "1uF", "C", {1:"EPD_VDD", 2:"GND"})            # VDD core  (ref C1)
-add("C14", "1uF/25V", "C", {1:"EPD_VSH1", 2:"GND"})      # ref C5
-add("C15", "1uF/25V", "C", {1:"EPD_VSH2", 2:"GND"})      # ref C6
-add("C16", "1uF/25V", "C", {1:"EPD_VSL", 2:"GND"})       # ref C7
-add("C17", "1uF/25V", "C", {1:"EPD_VCOM", 2:"GND"})      # ref C8
+add("C12", "1uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)               # VCI/VDDIO (ref C0)
+add("C13", "1uF", "C", {1:"EPD_VDD", 2:"GND"}, fp=FP_C)            # VDD core  (ref C1)
+add("C14", "1uF/25V", "C", {1:"EPD_VSH1", 2:"GND"}, fp=FP_C)      # ref C5
+add("C15", "1uF/25V", "C", {1:"EPD_VSH2", 2:"GND"}, fp=FP_C)      # ref C6
+add("C16", "1uF/25V", "C", {1:"EPD_VSL", 2:"GND"}, fp=FP_C)       # ref C7
+add("C17", "1uF/25V", "C", {1:"EPD_VCOM", 2:"GND"}, fp=FP_C)      # ref C8
 # optional external I2C temp sensor pull-ups (DNP by default)
-add("R12", "10k (DNP)", "R", {1:"EPD_TSCL", 2:"+3V3"}, dnp=True)
-add("R13", "10k (DNP)", "R", {1:"EPD_TSDA", 2:"+3V3"}, dnp=True)
+add("R12", "10k (DNP)", "R", {1:"EPD_TSCL", 2:"+3V3"}, fp=FP_R, dnp=True)
+add("R13", "10k (DNP)", "R", {1:"EPD_TSDA", 2:"+3V3"}, fp=FP_R, dnp=True)
 add("J4", "I2C temp (optional)", "Conn_1x04",
     {1:"+3V3", 2:"GND", 3:"EPD_TSCL", 4:"EPD_TSDA"},
     fp="Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical")
@@ -292,6 +302,12 @@ add("J6", "GPIO expansion", "Conn_2x12", {
 add("#FLG1", "PWR_FLAG", "PWR_FLAG", {1:"VBUS"}, in_bom=False)
 add("#FLG2", "PWR_FLAG", "PWR_FLAG", {1:"GND"},  in_bom=False)
 
+
+# every real (BOM) component must carry a footprint or "Update PCB from
+# Schematic" fails; power-flag pseudo-components legitimately have none.
+missing = [i["ref"] for i in instances if i["in_bom"] and not i["fp"]]
+if missing:
+    raise SystemExit(f"components without a footprint: {', '.join(missing)}")
 
 # ----------------------------------------------------------------------------
 # Emit schematic
@@ -325,9 +341,15 @@ label_lines = []
 nc_lines = []
 sym_lines = []
 
-def place_label(x, y, net, ang):
+LABEL_SHAPE = {
+    "input": "input", "power_in": "input",
+    "output": "output", "power_out": "output", "open_collector": "output",
+    "bidirectional": "bidirectional",
+}
+
+def place_label(x, y, net, ang, shape="passive"):
     label_lines.append(
-        f'  (global_label "{net}" (shape input) (at {x:.3f} {y:.3f} {ang}) (fields_autoplaced)\n'
+        f'  (global_label "{net}" (shape {shape}) (at {x:.3f} {y:.3f} {ang}) (fields_autoplaced)\n'
         f'    (effects (font (size 1.27 1.27)) (justify left))\n'
         f'    (uuid "{U()}"))'
     )
@@ -386,7 +408,7 @@ for idx, inst in enumerate(instances):
             f'  (wire (pts (xy {cx:.3f} {cy:.3f}) (xy {ex:.3f} {ey:.3f}))\n'
             f'    (stroke (width 0) (type default)) (uuid "{U()}"))'
         )
-        place_label(ex, ey, net, lab_ang)
+        place_label(ex, ey, net, lab_ang, LABEL_SHAPE.get(et, "passive"))
 
 out.extend(sym_lines)
 out.extend(wire_lines)

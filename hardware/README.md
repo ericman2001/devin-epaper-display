@@ -1,7 +1,8 @@
 # E-Paper Display — Hardware (KiCad schematic)
 
 Battery-powered 1.54" e-paper display built around the **ESP32-S3-WROOM-1** module.
-This directory contains a **schematic only** — no PCB layout / footprints yet.
+This directory contains a **schematic only** — no PCB layout yet, but every
+component carries a footprint.
 
 Files:
 
@@ -19,6 +20,13 @@ The schematic parses and passes ERC cleanly in **KiCad 8.0.9**
 netlist). Connectivity is expressed with **global labels**, so the netlist is
 correct even though the auto-generated component placement is rough. Re-open in
 KiCad and rearrange/route as desired.
+
+> There are intentionally **no long wires drawn between components**: every pin
+> has a short stub ending in a global label, and identically-named global labels
+> are one net across the whole sheet. So the schematic looks like a field of
+> labels rather than a routed drawing, but it is fully connected electrically —
+> confirm with *Tools → Edit Symbol Fields* / the netlist export, or hover a
+> label to highlight the net.
 
 ---
 
@@ -276,7 +284,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | D1 | USBLC6-2SC6 ESD TVS *(optional, DNP)* | SOT-23-6 (on breakout / omit) |
 | D2 | LED (charge status) | **THT** 3 mm LED |
 | D3,D4,D5 | MBR0530 Schottky | **SOD-123** (hand-solderable SMD) |
-| L1 | 47 µH (CDRH2D18 / LDNP-470NC) | SMD inductor (leaded pads) |
+| L1 | 47 µH (CDRH2D18 / LDNP-470NC) | 1210 SMD inductor |
 | R1,R2 | 5.1 kΩ (USB CC pull-downs) | 0805 |
 | R3,R4 | 22 Ω (USB D+/D- series) | 0805 |
 | R5 | 4.7 kΩ (charge-current PROG) | 0805 |
@@ -323,14 +331,18 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 
 ## 10. Status / not included
 
-- **Footprints and PCB layout are not included yet** — this is a schematic-level
-  deliverable. Footprint fields are pre-filled with sensible KiCad standard
-  library footprints as a starting point for when layout begins. Exception:
-  `J2` (USB-C) uses a simplified logical 9-pin symbol and is deliberately left
-  with **no footprint** — a real receptacle uses A/B-numbered pads, so its
-  footprint must be chosen together with a matching symbol at layout time. `D1`
-  (USBLC6-2SC6) uses the real SOT-23-6 pinout (1/6=I/O1, 3/4=I/O2, 2=GND,
-  5=VBUS) so it maps correctly to `SOT-23-6`.
+- **PCB layout is not included yet** — this is a schematic-level deliverable,
+  but every real (BOM) component now has a KiCad standard-library footprint
+  assigned, so *Update PCB from Schematic* runs without "no footprint assigned"
+  errors. Chip passives are all **0805** to stay hand-solderable, the MBR0530
+  Schottkys use `D_SOD-123` and `L1` uses `L_1210_3225Metric`; `gen_sch.py`
+  fails loudly if a BOM component is left without one.
+- `J2` (USB-C) is assigned `Connector_USB:USB_C_Receptacle_GCT_USB4085`, but its
+  simplified logical 9-pin symbol does **not** map 1:1 to the receptacle's
+  A/B-numbered pads — the pad assignment must be verified (or the stock KiCad
+  USB-C symbol substituted) at layout time. `D1` (USBLC6-2SC6) uses the real
+  SOT-23-6 pinout (1/6=I/O1, 3/4=I/O2, 2=GND, 5=VBUS) so it maps correctly to
+  `SOT-23-6`.
 - Component placement in the schematic is auto-generated and rough; connectivity
   is by global label and is correct (verified by KiCad 8 ERC + netlist export).
 
