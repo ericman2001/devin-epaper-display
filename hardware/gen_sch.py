@@ -175,6 +175,9 @@ FP_R = "Resistor_SMD:R_0805_2012Metric"
 FP_C = "Capacitor_SMD:C_0805_2012Metric"
 FP_D_SOD123 = "Diode_SMD:D_SOD-123"
 FP_L_1210 = "Inductor_SMD:L_1210_3225Metric"
+# every tactile push button is the same FSJM-series 6x6mm 4-pin through-hole
+# part (Omron/Alps 6.5mm x 4.5mm pad pitch), which this footprint models.
+FP_SW_6MM = "Button_Switch_THT:SW_PUSH_6mm"
 
 instances = []
 def add(ref, value, lib, nets, fp="", dnp=False, in_bom=True):
@@ -246,11 +249,20 @@ add("C5", "100nF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)
 add("C6", "10uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)
 add("R7", "10k", "R", {1:"+3V3", 2:"EN"}, fp=FP_R)
 add("C7", "1uF", "C", {1:"EN", 2:"GND"}, fp=FP_C)
-add("SW1", "EN/RESET", "SW_PUSH", {1:"EN", 2:"GND"},
-    fp="Button_Switch_SMD:SW_SPST_B3U-1000P")
+add("SW1", "EN/RESET", "SW_PUSH", {1:"EN", 2:"GND"}, fp=FP_SW_6MM)
 add("R8", "10k", "R", {1:"+3V3", 2:"BOOT"}, fp=FP_R)
-add("SW2", "BOOT", "SW_PUSH", {1:"BOOT", 2:"GND"},
-    fp="Button_Switch_SMD:SW_SPST_B3U-1000P")
+add("SW2", "BOOT", "SW_PUSH", {1:"BOOT", 2:"GND"}, fp=FP_SW_6MM)
+
+# --- User buttons: D-pad + select + cancel ---
+# Active-low to GND with no external pull-ups: firmware must configure each pin
+# as INPUT_PULLUP.  All six are RTC GPIOs (GPIO0-21), so any of them can serve
+# as a deep-sleep wake source.
+add("SW3", "BTN_UP",     "SW_PUSH", {1:"EXP_IO2",  2:"GND"}, fp=FP_SW_6MM)
+add("SW4", "BTN_DOWN",   "SW_PUSH", {1:"EXP_IO10", 2:"GND"}, fp=FP_SW_6MM)
+add("SW5", "BTN_LEFT",   "SW_PUSH", {1:"EXP_IO11", 2:"GND"}, fp=FP_SW_6MM)
+add("SW6", "BTN_RIGHT",  "SW_PUSH", {1:"EXP_IO12", 2:"GND"}, fp=FP_SW_6MM)
+add("SW7", "BTN_SELECT", "SW_PUSH", {1:"EXP_IO13", 2:"GND"}, fp=FP_SW_6MM)
+add("SW8", "BTN_CANCEL", "SW_PUSH", {1:"EXP_IO14", 2:"GND"}, fp=FP_SW_6MM)
 add("R14", "10k", "R", {1:"+3V3", 2:"EPD_CS"}, fp=FP_R)
 add("R15", "10k (DNP)", "R", {1:"STRAP_IO3", 2:"GND"}, fp=FP_R, dnp=True)
 add("R16", "10k", "R", {1:"EPD_RST", 2:"GND"}, fp=FP_R)
@@ -292,13 +304,15 @@ add("J4", "I2C temp (optional)", "Conn_1x04",
 add("J5", "UART", "Conn_1x04",
     {1:"+3V3", 2:"GND", 3:"UART_TXD0", 4:"UART_RXD0"},
     fp="Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical")
+# EXP_IO2/10/11/12/13/14 are now dedicated to SW3-SW8 and are deliberately not
+# broken out here; the freed pins become extra ground returns.
 add("J6", "GPIO expansion", "Conn_2x12", {
     1:"+3V3", 2:"GND",
-    3:"EXP_IO2", 4:"EXP_IO10", 5:"EXP_IO11", 6:"EXP_IO12", 7:"EXP_IO13",
-    8:"EXP_IO14", 9:"EXP_IO15", 10:"EXP_IO16", 11:"EXP_IO17", 12:"EXP_IO18",
-    13:"EXP_IO21", 14:"EXP_IO35", 15:"EXP_IO36", 16:"EXP_IO37", 17:"EXP_IO38",
-    18:"EXP_IO39", 19:"EXP_IO40", 20:"EXP_IO41", 21:"EXP_IO42", 22:"EXP_IO47",
-    23:"EXP_IO48", 24:"GND",
+    3:"EXP_IO15", 4:"EXP_IO16", 5:"EXP_IO17", 6:"EXP_IO18",
+    7:"EXP_IO21", 8:"EXP_IO35", 9:"EXP_IO36", 10:"EXP_IO37", 11:"EXP_IO38",
+    12:"EXP_IO39", 13:"EXP_IO40", 14:"EXP_IO41", 15:"EXP_IO42", 16:"EXP_IO47",
+    17:"EXP_IO48", 18:"GND",
+    19:"GND", 20:"GND", 21:"GND", 22:"GND", 23:"GND", 24:"GND",
 }, fp="Connector_PinHeader_2.54mm:PinHeader_2x12_P2.54mm_Vertical")
 
 # --- power flags (ERC: mark externally-sourced nets as driven) ---

@@ -269,8 +269,30 @@ externally driven for ERC.
 
 ### Spare GPIO expansion header (`J6`, 2×12)
 
-Exposes 3V3, GND and spare GPIOs `IO2, IO10–IO18, IO21, IO35–IO42, IO47, IO48`
-for future peripherals.
+Exposes 3V3, GND and spare GPIOs `IO15–IO18, IO21, IO35–IO42, IO47, IO48` for
+future peripherals. `IO2` and `IO10–IO14` are **no longer** on this header —
+they are dedicated to the user buttons `SW3`–`SW8` (below), so the six freed
+header pins are tied to `GND` as extra ground returns (the connector stays a
+2×12).
+
+### User buttons (`SW3`–`SW8`)
+
+D-pad + select + cancel, each wired pin 1 → GPIO, pin 2 → `GND` (active low).
+There are **no external pull-ups**: firmware must configure each pin as
+`INPUT_PULLUP` using the ESP32-S3 internal pull-ups. All six are **RTC-capable
+GPIOs (GPIO0–21)**, so any of them can be used as a deep-sleep wake source.
+
+| Ref | Function | Net | GPIO |
+|-----|----------|-----|------|
+| SW3 | `BTN_UP` | `EXP_IO2` | **GPIO2** |
+| SW4 | `BTN_DOWN` | `EXP_IO10` | **GPIO10** |
+| SW5 | `BTN_LEFT` | `EXP_IO11` | **GPIO11** |
+| SW6 | `BTN_RIGHT` | `EXP_IO12` | **GPIO12** |
+| SW7 | `BTN_SELECT` | `EXP_IO13` | **GPIO13** |
+| SW8 | `BTN_CANCEL` | `EXP_IO14` | **GPIO14** |
+
+`SW1` (EN/RESET) and `SW2` (BOOT) use the same FSJM 6 × 6 mm through-hole part
+as `SW3`–`SW8` — they are no longer the `B3U-1000P` SMD switch.
 
 ---
 
@@ -317,7 +339,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | J4 | I²C temp sensor *(optional)* | **THT** 1×4 0.1" header |
 | J5 | UART console | **THT** 1×4 0.1" header |
 | J6 | GPIO expansion | **THT** 2×12 0.1" header |
-| SW1,SW2 | EN/RESET, BOOT buttons | tactile switch |
+| SW1–SW8 | Tactile push button, FSJM series 6 × 6 mm (EN/RESET, BOOT, D-pad, SELECT, CANCEL) | **THT** 4-pin 6 × 6 mm (Omron/Alps 6.5 × 4.5 mm pitch), `Button_Switch_THT:SW_PUSH_6mm` |
 
 ---
 
