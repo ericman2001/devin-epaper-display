@@ -168,10 +168,11 @@ mk("PWR_FLAG", [ (1, "pwr", "power_out") ])
 # ----------------------------------------------------------------------------
 NC = None  # marks a no-connect
 
-# default footprints for the generic passive symbols
-FP_R      = "Resistor_SMD:R_0603_1608Metric"
-FP_C_0603 = "Capacitor_SMD:C_0603_1608Metric"   # <=1uF decoupling
-FP_C_0805 = "Capacitor_SMD:C_0805_2012Metric"   # bulk / >=4.7uF
+# default footprints for the generic passive symbols.  0805 throughout: this is
+# a hand-soldered board (see README), and 0805 is the smallest chip package that
+# is comfortable with a fine-tip iron.
+FP_R = "Resistor_SMD:R_0805_2012Metric"
+FP_C = "Capacitor_SMD:C_0805_2012Metric"
 FP_D_SOD123 = "Diode_SMD:D_SOD-123"
 FP_L_1210 = "Inductor_SMD:L_1210_3225Metric"
 
@@ -228,8 +229,8 @@ add("R5", "4.7k", "R", {1:"CHG_PROG", 2:"GND"}, fp=FP_R)  # I_chg = 1000/4.7k ~=
 add("R6", "1k", "R", {1:"+3V3", 2:"CHG_LED"}, fp=FP_R)
 add("D2", "LED (charge)", "LED", {1:"CHG_LED", 2:"CHG_STAT"},
     fp="LED_THT:LED_D3.0mm")
-add("C1", "4.7uF", "C", {1:"VBUS", 2:"GND"}, fp=FP_C_0805)   # charger input
-add("C2", "4.7uF", "C", {1:"VBAT", 2:"GND"}, fp=FP_C_0805)   # charger output
+add("C1", "4.7uF", "C", {1:"VBUS", 2:"GND"}, fp=FP_C)   # charger input
+add("C2", "4.7uF", "C", {1:"VBAT", 2:"GND"}, fp=FP_C)   # charger output
 add("J3", "LiPo JST-PH", "Conn_JST_PH_2", {1:"VBAT", 2:"GND"},
     fp="Connector_JST:JST_PH_S2B-PH-K_1x02_P2.00mm_Horizontal")
 
@@ -237,14 +238,14 @@ add("J3", "LiPo JST-PH", "Conn_JST_PH_2", {1:"VBAT", 2:"GND"},
 add("U3", "MCP1825S-3302E/DB", "MCP1825S-3302", {
     1:"VBAT", 2:"GND", 3:"+3V3",
 }, fp="Package_TO_SOT_SMD:SOT-223-3_TabPin2")
-add("C3", "4.7uF", "C", {1:"VBAT", 2:"GND"}, fp=FP_C_0805)   # LDO input  (>=1uF, X7R)
-add("C4", "4.7uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C_0805)   # LDO output (>=1uF, X7R, ESR<1ohm)
+add("C3", "4.7uF", "C", {1:"VBAT", 2:"GND"}, fp=FP_C)   # LDO input  (>=1uF, X7R)
+add("C4", "4.7uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)   # LDO output (>=1uF, X7R, ESR<1ohm)
 
 # --- MCU support ---
-add("C5", "100nF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C_0603)
-add("C6", "10uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C_0805)
+add("C5", "100nF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)
+add("C6", "10uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)
 add("R7", "10k", "R", {1:"+3V3", 2:"EN"}, fp=FP_R)
-add("C7", "1uF", "C", {1:"EN", 2:"GND"}, fp=FP_C_0603)
+add("C7", "1uF", "C", {1:"EN", 2:"GND"}, fp=FP_C)
 add("SW1", "EN/RESET", "SW_PUSH", {1:"EN", 2:"GND"},
     fp="Button_Switch_SMD:SW_SPST_B3U-1000P")
 add("R8", "10k", "R", {1:"+3V3", 2:"BOOT"}, fp=FP_R)
@@ -254,7 +255,7 @@ add("SW2", "BOOT", "SW_PUSH", {1:"BOOT", 2:"GND"},
 # --- Battery sense divider (into ADC1_CH0 / GPIO1) ---
 add("R9", "100k", "R", {1:"VBAT", 2:"VBAT_SENSE"}, fp=FP_R)
 add("R10", "100k", "R", {1:"VBAT_SENSE", 2:"GND"}, fp=FP_R)
-add("C8", "100nF", "C", {1:"VBAT_SENSE", 2:"GND"}, fp=FP_C_0603)
+add("C8", "100nF", "C", {1:"VBAT_SENSE", 2:"GND"}, fp=FP_C)
 
 # --- E-paper DC/DC boost + charge pump (reference circuit, datasheet p.24) ---
 add("L1", "47uH", "L", {1:"EPD_SW", 2:"+3V3"}, fp=FP_L_1210)   # VCI = +3V3
@@ -267,16 +268,16 @@ add("R11", "2.2", "R", {1:"EPD_RESE", 2:"GND"}, fp=FP_R)   # RESE sense resistor
 add("D3", "MBR0530", "D_Schottky", {1:"EPD_SW", 2:"EPD_VGH"}, fp=FP_D_SOD123)     # ds D1: anode SW  -> cathode VGH
 add("D4", "MBR0530", "D_Schottky", {1:"EPD_CPMID", 2:"GND"}, fp=FP_D_SOD123)      # ds D2: anode CPMID -> cathode GND
 add("D5", "MBR0530", "D_Schottky", {1:"EPD_VGL", 2:"EPD_CPMID"}, fp=FP_D_SOD123)  # ds D3: anode VGL -> cathode CPMID
-add("C9",  "1uF/25V", "C", {1:"EPD_SW", 2:"EPD_CPMID"}, fp=FP_C_0603)   # flying cap (ref C3)
-add("C10", "1uF/25V", "C", {1:"EPD_VGH", 2:"GND"}, fp=FP_C_0603)        # ref C2
-add("C11", "1uF/25V", "C", {1:"EPD_VGL", 2:"GND"}, fp=FP_C_0603)        # ref C4
+add("C9",  "1uF/25V", "C", {1:"EPD_SW", 2:"EPD_CPMID"}, fp=FP_C)   # flying cap (ref C3)
+add("C10", "1uF/25V", "C", {1:"EPD_VGH", 2:"GND"}, fp=FP_C)        # ref C2
+add("C11", "1uF/25V", "C", {1:"EPD_VGL", 2:"GND"}, fp=FP_C)        # ref C4
 # rail decoupling caps
-add("C12", "1uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C_0603)               # VCI/VDDIO (ref C0)
-add("C13", "1uF", "C", {1:"EPD_VDD", 2:"GND"}, fp=FP_C_0603)            # VDD core  (ref C1)
-add("C14", "1uF/25V", "C", {1:"EPD_VSH1", 2:"GND"}, fp=FP_C_0603)      # ref C5
-add("C15", "1uF/25V", "C", {1:"EPD_VSH2", 2:"GND"}, fp=FP_C_0603)      # ref C6
-add("C16", "1uF/25V", "C", {1:"EPD_VSL", 2:"GND"}, fp=FP_C_0603)       # ref C7
-add("C17", "1uF/25V", "C", {1:"EPD_VCOM", 2:"GND"}, fp=FP_C_0603)      # ref C8
+add("C12", "1uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)               # VCI/VDDIO (ref C0)
+add("C13", "1uF", "C", {1:"EPD_VDD", 2:"GND"}, fp=FP_C)            # VDD core  (ref C1)
+add("C14", "1uF/25V", "C", {1:"EPD_VSH1", 2:"GND"}, fp=FP_C)      # ref C5
+add("C15", "1uF/25V", "C", {1:"EPD_VSH2", 2:"GND"}, fp=FP_C)      # ref C6
+add("C16", "1uF/25V", "C", {1:"EPD_VSL", 2:"GND"}, fp=FP_C)       # ref C7
+add("C17", "1uF/25V", "C", {1:"EPD_VCOM", 2:"GND"}, fp=FP_C)      # ref C8
 # optional external I2C temp sensor pull-ups (DNP by default)
 add("R12", "10k (DNP)", "R", {1:"EPD_TSCL", 2:"+3V3"}, fp=FP_R, dnp=True)
 add("R13", "10k (DNP)", "R", {1:"EPD_TSDA", 2:"+3V3"}, fp=FP_R, dnp=True)
