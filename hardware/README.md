@@ -1,7 +1,8 @@
 # E-Paper Display — Hardware (KiCad schematic)
 
 Battery-powered 1.54" e-paper display built around the **ESP32-S3-WROOM-1** module.
-This directory contains a **schematic only** — no PCB layout / footprints yet.
+This directory contains a **schematic only** — no PCB layout yet, but every
+component carries a footprint.
 
 Files:
 
@@ -19,6 +20,13 @@ The schematic parses and passes ERC cleanly in **KiCad 8.0.9**
 netlist). Connectivity is expressed with **global labels**, so the netlist is
 correct even though the auto-generated component placement is rough. Re-open in
 KiCad and rearrange/route as desired.
+
+> There are intentionally **no long wires drawn between components**: every pin
+> has a short stub ending in a global label, and identically-named global labels
+> are one net across the whole sheet. So the schematic looks like a field of
+> labels rather than a routed drawing, but it is fully connected electrically —
+> confirm with *Tools → Edit Symbol Fields* / the netlist export, or hover a
+> label to highlight the net.
 
 ---
 
@@ -185,11 +193,11 @@ using hand-solderable leaded parts:
 |-----|--------------|---------|----------|
 | `L1` | 47 µH (CDRH2D18 / LDNP-470NC) | SMD inductor (leaded pads) | boost inductor, VCI→SW |
 | `Q1` | Si1304BDL / NX3008NBK N-MOSFET | **SOT-23** | boost switch, gate = `GDR` |
-| `R11` | 2.2 Ω 1% | 0805 | `RESE` current-sense resistor |
+| `R11` | 2.2 Ω 1% | 0603 | `RESE` current-sense resistor |
 | `D3`,`D4`,`D5` | MBR0530 Schottky | SOD-123 | boost/charge-pump rectifiers |
-| `C9` | 1 µF / 25 V | 0805 | flying capacitor (ref `C3`) |
-| `C10` | 1 µF / 25 V | 0805 | `VGH` reservoir (ref `C2`) |
-| `C11` | 1 µF / 25 V | 0805 | `VGL` reservoir (ref `C4`) |
+| `C9` | 1 µF / 25 V | 0603 | flying capacitor (ref `C3`) |
+| `C10` | 1 µF / 25 V | 0603 | `VGH` reservoir (ref `C2`) |
+| `C11` | 1 µF / 25 V | 0603 | `VGL` reservoir (ref `C4`) |
 
 Rail decoupling (per datasheet reference, all 1 µF; charge-pump rails 25 V):
 `C12` VCI/VDDIO(+3V3), `C13` VDD(core), `C14` VSH1, `C15` VSH2, `C16` VSL,
@@ -264,7 +272,7 @@ for future peripherals.
 ## 8. Bill of Materials
 
 **PACKAGE / mounting column:** every part is THT, hand-solderable leaded SMD
-(SOT-23 / SOT-223 / SOD-123 / 0805 / TO-92-class), a castellated module, or a
+(SOT-23 / SOT-223 / SOD-123 / 0603-0805 / TO-92-class), a castellated module, or a
 breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 
 | Ref | Value / Part number | Package / mounting |
@@ -276,25 +284,25 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | D1 | USBLC6-2SC6 ESD TVS *(optional, DNP)* | SOT-23-6 (on breakout / omit) |
 | D2 | LED (charge status) | **THT** 3 mm LED |
 | D3,D4,D5 | MBR0530 Schottky | **SOD-123** (hand-solderable SMD) |
-| L1 | 47 µH (CDRH2D18 / LDNP-470NC) | SMD inductor (leaded pads) |
-| R1,R2 | 5.1 kΩ (USB CC pull-downs) | 0805 |
-| R3,R4 | 22 Ω (USB D+/D- series) | 0805 |
-| R5 | 4.7 kΩ (charge-current PROG) | 0805 |
-| R6 | 1 kΩ (STAT LED) | 0805 |
-| R7,R8 | 10 kΩ (EN, BOOT pull-ups) | 0805 |
-| R9,R10 | 100 kΩ (battery-sense divider) | 0805 |
-| R11 | 2.2 Ω 1% (RESE sense) | 0805 |
-| R12,R13 | 10 kΩ (I²C temp pull-ups, **DNP**) | 0805 |
+| L1 | 47 µH (CDRH2D18 / LDNP-470NC) | 1210 SMD inductor |
+| R1,R2 | 5.1 kΩ (USB CC pull-downs) | 0603 |
+| R3,R4 | 22 Ω (USB D+/D- series) | 0603 |
+| R5 | 4.7 kΩ (charge-current PROG) | 0603 |
+| R6 | 1 kΩ (STAT LED) | 0603 |
+| R7,R8 | 10 kΩ (EN, BOOT pull-ups) | 0603 |
+| R9,R10 | 100 kΩ (battery-sense divider) | 0603 |
+| R11 | 2.2 Ω 1% (RESE sense) | 0603 |
+| R12,R13 | 10 kΩ (I²C temp pull-ups, **DNP**) | 0603 |
 | C1,C2 | 4.7 µF (charger in/out) | 0805 X7R |
 | C3,C4 | 4.7 µF (LDO in/out) | 0805 X7R |
-| C5 | 100 nF (module decoupling) | 0805 |
+| C5 | 100 nF (module decoupling) | 0603 |
 | C6 | 10 µF (module bulk) | 0805 X7R |
-| C7 | 1 µF (EN RC) | 0805 |
-| C8 | 100 nF (battery-sense filter) | 0805 |
-| C9,C10,C11 | 1 µF / 25 V (boost flying + VGH/VGL) | 0805 X7R |
-| C12 | 1 µF (display VCI/VDDIO) | 0805 |
-| C13 | 1 µF (display VDD core) | 0805 |
-| C14,C15,C16,C17 | 1 µF / 25 V (VSH1/VSH2/VSL/VCOM) | 0805 X7R |
+| C7 | 1 µF (EN RC) | 0603 |
+| C8 | 100 nF (battery-sense filter) | 0603 |
+| C9,C10,C11 | 1 µF / 25 V (boost flying + VGH/VGL) | 0603 X7R |
+| C12 | 1 µF (display VCI/VDDIO) | 0603 |
+| C13 | 1 µF (display VDD core) | 0603 |
+| C14,C15,C16,C17 | 1 µF / 25 V (VSH1/VSH2/VSL/VCOM) | 0603 X7R |
 | J1 | AES200200A00 24-pin 0.5 mm FPC | **FPC-to-0.1" breakout / 0.5 mm ZIF socket** |
 | J2 | USB-C receptacle (2.0, sink) | **THT / hand-solderable receptacle or breakout** |
 | J3 | LiPo battery | **JST-PH 2-pin** THT connector |
@@ -314,7 +322,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
   castellations 1 & 40) — no reflow needed.
 - Solder the **MCP1825S SOT-223 tab (pin 2, GND)** flat onto a GND copper pour
   for heat-spreading.
-- SOT-23 / SOT-23-5 / SOD-123 / 0805 parts hand-solder easily; tin one pad,
+- SOT-23 / SOT-23-5 / SOD-123 / 0603-0805 parts hand-solder easily; tin one pad,
   place the part, then solder the remaining pins.
 - The **only** fine-pitch SMT part is the optional ESD TVS `D1` — it is DNP and
   may be placed on a breakout or omitted entirely.
@@ -323,14 +331,18 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 
 ## 10. Status / not included
 
-- **Footprints and PCB layout are not included yet** — this is a schematic-level
-  deliverable. Footprint fields are pre-filled with sensible KiCad standard
-  library footprints as a starting point for when layout begins. Exception:
-  `J2` (USB-C) uses a simplified logical 9-pin symbol and is deliberately left
-  with **no footprint** — a real receptacle uses A/B-numbered pads, so its
-  footprint must be chosen together with a matching symbol at layout time. `D1`
-  (USBLC6-2SC6) uses the real SOT-23-6 pinout (1/6=I/O1, 3/4=I/O2, 2=GND,
-  5=VBUS) so it maps correctly to `SOT-23-6`.
+- **PCB layout is not included yet** — this is a schematic-level deliverable,
+  but every real (BOM) component now has a KiCad standard-library footprint
+  assigned, so *Update PCB from Schematic* runs without "no footprint assigned"
+  errors. Passives default to 0603 (0805 for bulk caps ≥4.7 µF), the MBR0530
+  Schottkys to `D_SOD-123` and `L1` to `L_1210_3225Metric`; `gen_sch.py` fails
+  loudly if a BOM component is left without one.
+- `J2` (USB-C) is assigned `Connector_USB:USB_C_Receptacle_GCT_USB4085`, but its
+  simplified logical 9-pin symbol does **not** map 1:1 to the receptacle's
+  A/B-numbered pads — the pad assignment must be verified (or the stock KiCad
+  USB-C symbol substituted) at layout time. `D1` (USBLC6-2SC6) uses the real
+  SOT-23-6 pinout (1/6=I/O1, 3/4=I/O2, 2=GND, 5=VBUS) so it maps correctly to
+  `SOT-23-6`.
 - Component placement in the schematic is auto-generated and rough; connectivity
   is by global label and is correct (verified by KiCad 8 ERC + netlist export).
 
