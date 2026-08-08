@@ -253,6 +253,7 @@ add("SW2", "BOOT", "SW_PUSH", {1:"BOOT", 2:"GND"},
     fp="Button_Switch_SMD:SW_SPST_B3U-1000P")
 add("R14", "10k", "R", {1:"+3V3", 2:"EPD_CS"}, fp=FP_R)
 add("R15", "10k (DNP)", "R", {1:"STRAP_IO3", 2:"GND"}, fp=FP_R, dnp=True)
+add("R16", "10k", "R", {1:"EPD_RST", 2:"GND"}, fp=FP_R)
 
 # --- Battery sense divider (into ADC1_CH0 / GPIO1) ---
 add("R9", "100k", "R", {1:"VBAT", 2:"VBAT_SENSE"}, fp=FP_R)

@@ -134,6 +134,7 @@ side-castellation solderable with a fine-tip iron.
 | Reset (EN) | `R7` 10k pull-up to 3V3, `C7` 1µF to GND, `SW1` to GND | RC power-on reset + optional EN/RESET button. *Do not leave EN floating.* |
 | Boot strap | `R8` 10k pull-up to 3V3 on **GPIO0**, `SW2` (BOOT) to GND | S3 download-boot strap is **GPIO0** |
 | E-paper CS | `R14` 10k pull-up to 3V3 on **GPIO6** | keeps the panel deselected during reset/power-up |
+| E-paper reset | `R16` 10k pull-down to GND on **GPIO8** | holds active-low `RES#` asserted while the ESP32 is in reset; the panel stays in reset until firmware drives GPIO8 high, alongside the `EN`/`SW1` reset RC |
 | GPIO45 / GPIO46 | left at datasheet default | strapping pins — see §7 |
 | GPIO3 | `R15` 10k pull-down (**DNP**) | optional strap pad; see §7 |
 
@@ -229,7 +230,7 @@ these pins may be left **Open** when not in use).
 | 14 | SDA (MOSI) | `EPD_MOSI` | **GPIO5** |
 | 12 | CS# | `EPD_CS` | **GPIO6** (`R14` 10 kΩ pull-up) |
 | 11 | D/C# | `EPD_DC` | **GPIO7** |
-| 10 | RES# | `EPD_RST` | **GPIO8** |
+| 10 | RES# | `EPD_RST` | **GPIO8** (`R16` 10 kΩ pull-down) |
 | 9 | BUSY | `EPD_BUSY` | **GPIO9** (input) |
 | 8 | BS1 | `GND` | tie low → 4-wire SPI |
 | 6 / 7 | TSCL / TSDA | `EPD_TSCL` / `EPD_TSDA` | optional I²C temp header (`J4`), else Open |
@@ -299,6 +300,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | R12,R13 | 10 kΩ (I²C temp pull-ups, **DNP**) | 0805 |
 | R14 | 10 kΩ (EPD CS pull-up) | 0805 |
 | R15 | 10 kΩ (GPIO3 pull-down, **DNP**) | 0805 |
+| R16 | 10 kΩ (EPD reset pull-down) | 0805 |
 | C1,C2 | 4.7 µF (charger in/out) | 0805 X7R |
 | C3,C4 | 4.7 µF (LDO in/out) | 0805 X7R |
 | C5 | 100 nF (module decoupling) | 0805 |
