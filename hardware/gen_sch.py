@@ -184,12 +184,12 @@ def add(ref, value, lib, nets, fp="", dnp=False, in_bom=True):
     instances.append(dict(ref=ref, value=value, lib=lib, nets=nets, fp=fp, dnp=dnp, in_bom=in_bom))
 
 # --- ESP32-S3-WROOM-1 ---
-add("U1", "ESP32-S3-WROOM-1", "ESP32-S3-WROOM-1", {
+add("U1", "ESP32-S3-WROOM-1-N8", "ESP32-S3-WROOM-1", {
     1:"GND", 2:"+3V3", 3:"EN",
     4:"EPD_SCLK", 5:"EPD_MOSI", 6:"EPD_CS", 7:"EPD_DC",
     8:"EXP_IO15", 9:"EXP_IO16", 10:"EXP_IO17", 11:"EXP_IO18",
     12:"EPD_RST", 13:"USB_DM_MCU", 14:"USB_DP_MCU",
-    15:NC, 16:NC, 17:"EPD_BUSY",
+    15:"STRAP_IO3", 16:NC, 17:"EPD_BUSY",
     18:"EXP_IO10", 19:"EXP_IO11", 20:"EXP_IO12", 21:"EXP_IO13", 22:"EXP_IO14",
     23:"EXP_IO21", 24:"EXP_IO47", 25:"EXP_IO48", 26:NC, 27:"BOOT",
     28:"EXP_IO35", 29:"EXP_IO36", 30:"EXP_IO37", 31:"EXP_IO38", 32:"EXP_IO39",
@@ -263,6 +263,9 @@ add("SW5", "BTN_LEFT",   "SW_PUSH", {1:"EXP_IO11", 2:"GND"}, fp=FP_SW_6MM)
 add("SW6", "BTN_RIGHT",  "SW_PUSH", {1:"EXP_IO12", 2:"GND"}, fp=FP_SW_6MM)
 add("SW7", "BTN_SELECT", "SW_PUSH", {1:"EXP_IO13", 2:"GND"}, fp=FP_SW_6MM)
 add("SW8", "BTN_CANCEL", "SW_PUSH", {1:"EXP_IO14", 2:"GND"}, fp=FP_SW_6MM)
+add("R14", "10k", "R", {1:"+3V3", 2:"EPD_CS"}, fp=FP_R)
+add("R15", "10k (DNP)", "R", {1:"STRAP_IO3", 2:"GND"}, fp=FP_R, dnp=True)
+add("R16", "10k", "R", {1:"EPD_RST", 2:"GND"}, fp=FP_R)
 
 # --- Battery sense divider (into ADC1_CH0 / GPIO1) ---
 add("R9", "100k", "R", {1:"VBAT", 2:"VBAT_SENSE"}, fp=FP_R)
@@ -339,7 +342,8 @@ MAX_W = max(sd.width for sd in symdefs.values())
 MAX_H = max(sd.height for sd in symdefs.values())
 LABEL_ROOM = 45.0     # global-label text length allowance
 PAGE_W = X0 + (COLS - 1) * COL_W + MAX_W / 2 + PIN_LEN + GRID + LABEL_ROOM + X0
-PAGE_H = Y0 + (ROWS_TOTAL - 1) * ROW_H + MAX_H / 2 + Y0
+NOTE_Y = Y0 + ROWS_TOTAL * ROW_H
+PAGE_H = NOTE_Y + max(MAX_H / 2, GRID) + Y0
 
 out = []
 out.append('(kicad_sch (version 20231120) (generator "epaper_gen")')
@@ -352,6 +356,7 @@ out.append('  )')
 
 wire_lines = []
 label_lines = []
+text_lines = []
 nc_lines = []
 sym_lines = []
 
@@ -369,6 +374,13 @@ def place_label(x, y, net, ang, shape="passive", justify=None):
     label_lines.append(
         f'  (global_label "{net}" (shape {shape}) (at {x:.3f} {y:.3f} {ang}) (fields_autoplaced)\n'
         f'    (effects (font (size 1.27 1.27)) (justify {justify}))\n'
+        f'    (uuid "{U()}"))'
+    )
+
+def place_text(x, y, text):
+    text_lines.append(
+        f'  (text "{text}" (exclude_from_sim no) (at {x:.3f} {y:.3f} 0)\n'
+        f'    (effects (font (size 1.27 1.27)) (justify left))\n'
         f'    (uuid "{U()}"))'
     )
 
@@ -430,10 +442,14 @@ for idx, inst in enumerate(instances):
         )
         place_label(ex, ey, net, lab_ang, LABEL_SHAPE.get(et, "passive"), lab_justify)
 
+place_text(X0, NOTE_Y,
+           "J6 IO35-37 and IO47/48 assume non-octal-PSRAM, non-R16V module")
+
 out.extend(sym_lines)
 out.extend(wire_lines)
 out.extend(nc_lines)
 out.extend(label_lines)
+out.extend(text_lines)
 
 # sheet instances block
 out.append('  (sheet_instances')
