@@ -119,11 +119,19 @@ EPD_PINS = [
 ]
 mk("EPD_AES200200A00", EPD_PINS)
 
-# USB-C receptacle (logical pins)
-mk("USB_C_Receptacle", [
-    (1,"VBUS","power_in"),(2,"GND","power_in"),(3,"CC1","passive"),(4,"CC2","passive"),
-    (5,"D+","bidirectional"),(6,"D-","bidirectional"),(7,"SBU1","passive"),
-    (8,"SBU2","passive"),(9,"SHIELD","passive"),
+# USB-C receptacle, USB 2.0 16-pin.  Pin *numbers* are the real A/B pad names so
+# they map 1:1 onto Connector_USB:USB_C_Receptacle_GCT_USB4085 (pads A1 A4 A5 A6
+# A7 A8 A9 A12 / B1 B4 B5 B6 B7 B8 B9 B12 + four shield pads all numbered S1).
+# The duplicated rows MUST be paralleled in the netlist below or the cable only
+# works in one orientation.
+mk("USB_C_Receptacle_USB2.0", [
+    ("A1","GND","power_in"),("A4","VBUS","power_in"),("A5","CC1","passive"),
+    ("A6","D+","bidirectional"),("A7","D-","bidirectional"),("A8","SBU1","passive"),
+    ("A9","VBUS","power_in"),("A12","GND","power_in"),
+    ("B1","GND","power_in"),("B4","VBUS","power_in"),("B5","CC2","passive"),
+    ("B6","D+","bidirectional"),("B7","D-","bidirectional"),("B8","SBU2","passive"),
+    ("B9","VBUS","power_in"),("B12","GND","power_in"),
+    ("S1","SHIELD","passive"),
 ])
 
 # MCP73831 SOT-23-5
@@ -145,6 +153,7 @@ mk("R", [ (1,"1","passive"),(2,"2","passive") ])
 mk("C", [ (1,"1","passive"),(2,"2","passive") ])
 mk("L", [ (1,"1","passive"),(2,"2","passive") ])
 mk("D_Schottky", [ (1,"A","passive"),(2,"K","passive") ])
+mk("D_TVS", [ (1,"A","passive"),(2,"K","passive") ])
 mk("LED", [ (1,"A","passive"),(2,"K","passive") ])
 mk("SW_PUSH", [ (1,"1","passive"),(2,"2","passive") ])
 mk("Conn_JST_PH_2", [ (1,"1","passive"),(2,"2","passive") ])
@@ -173,8 +182,13 @@ NC = None  # marks a no-connect
 # is comfortable with a fine-tip iron.
 FP_R = "Resistor_SMD:R_0805_2012Metric"
 FP_C = "Capacitor_SMD:C_0805_2012Metric"
+FP_C_1206 = "Capacitor_SMD:C_1206_3216Metric"   # bulk electrolytic-class ceramics
 FP_D_SOD123 = "Diode_SMD:D_SOD-123"
-FP_L_1210 = "Inductor_SMD:L_1210_3225Metric"
+FP_D_SMA = "Diode_SMD:D_SMA"
+# wire-wound shielded power inductor land pattern (4.0 x 4.0 mm).  The panel
+# datasheet's CDRH2D18 has no KiCad footprint; MWSA0402S is the same class of
+# part, is stocked, and has two big end pads that hand-solder easily.
+FP_L_MWSA0402S = "Inductor_SMD:L_Sunlord_MWSA0402S"
 # every tactile push button is the same FSJM-series 6x6mm 4-pin through-hole
 # part (Omron/Alps 6.5mm x 4.5mm pad pitch), which this footprint models.
 FP_SW_6MM = "Button_Switch_THT:SW_PUSH_6mm"
@@ -190,11 +204,11 @@ add("U1", "ESP32-S3-WROOM-1-N8", "ESP32-S3-WROOM-1", {
     8:"EXP_IO15", 9:"EXP_IO16", 10:"EXP_IO17", 11:"EXP_IO18",
     12:"EPD_RST", 13:"USB_DM_MCU", 14:"USB_DP_MCU",
     15:"STRAP_IO3", 16:NC, 17:"EPD_BUSY",
-    18:"EXP_IO10", 19:"EXP_IO11", 20:"EXP_IO12", 21:"EXP_IO13", 22:"EXP_IO14",
+    18:"BTN_DOWN", 19:"BTN_LEFT", 20:"BTN_RIGHT", 21:"BTN_SELECT", 22:"BTN_CANCEL",
     23:"EXP_IO21", 24:"EXP_IO47", 25:"EXP_IO48", 26:NC, 27:"BOOT",
     28:"EXP_IO35", 29:"EXP_IO36", 30:"EXP_IO37", 31:"EXP_IO38", 32:"EXP_IO39",
     33:"EXP_IO40", 34:"EXP_IO41", 35:"EXP_IO42", 36:"UART_RXD0", 37:"UART_TXD0",
-    38:"EXP_IO2", 39:"VBAT_SENSE", 40:"GND", 41:"GND",
+    38:"BTN_UP", 39:"VBAT_SENSE", 40:"GND", 41:"GND",
 }, fp="RF_Module:ESP32-S3-WROOM-1")
 
 # --- E-paper FPC breakout ---
@@ -202,40 +216,59 @@ add("J1", "AES200200A00 FPC", "EPD_AES200200A00", {
     1:NC, 2:"EPD_GDR", 3:"EPD_RESE", 4:NC, 5:"EPD_VSH2",
     6:"EPD_TSCL", 7:"EPD_TSDA", 8:"GND", 9:"EPD_BUSY", 10:"EPD_RST",
     11:"EPD_DC", 12:"EPD_CS", 13:"EPD_SCLK", 14:"EPD_MOSI",
-    15:"+3V3", 16:"+3V3", 17:"GND", 18:"EPD_VDD", 19:"+3V3",
+    15:"+3V3", 16:"+3V3", 17:"GND", 18:"EPD_VDD", 19:"EPD_VPP",
     20:"EPD_VSH1", 21:"EPD_VGH", 22:"EPD_VSL", 23:"EPD_VGL", 24:"EPD_VCOM",
 }, fp="Connector_FFC-FPC:Hirose_FH12-24S-0.5SH_1x24-1MP_P0.50mm_Horizontal")
 
 # --- USB-C receptacle ---
-# TODO(layout): this is a simplified logical 9-pin symbol, while the GCT
-# USB4085 receptacle has A/B-numbered pads (A1..A12 / B1..B12 plus shield
-# tabs).  The symbol pins therefore do NOT map 1:1 to the physical pads --
-# verify/repair the pad assignment (and pair CC1/CC2, D+/D-, VBUS, GND across
-# both rows) when laying out the PCB, or swap in the stock KiCad USB-C symbol.
-add("J2", "USB-C", "USB_C_Receptacle", {
-    1:"VBUS", 2:"GND", 3:"CC1", 4:"CC2", 5:"USB_DP", 6:"USB_DM",
-    7:NC, 8:NC, 9:"GND",
+# Both rows are paralleled (A4/B4/A9/B9 = VBUS, A1/B1/A12/B12 = GND, A6/B6 = D+,
+# A7/B7 = D-) so the receptacle works in either cable orientation.  CC1 (A5) and
+# CC2 (B5) each get their own 5.1k Rd and must NOT be shorted together.
+add("J2", "USB-C 2.0 receptacle", "USB_C_Receptacle_USB2.0", {
+    "A1":"GND",  "A4":"VBUS", "A5":"CC1", "A6":"USB_DP", "A7":"USB_DM",
+    "A8":NC,     "A9":"VBUS", "A12":"GND",
+    "B1":"GND",  "B4":"VBUS", "B5":"CC2", "B6":"USB_DP", "B7":"USB_DM",
+    "B8":NC,     "B9":"VBUS", "B12":"GND",
+    "S1":"GND",
 }, fp="Connector_USB:USB_C_Receptacle_GCT_USB4085")
 add("R1", "5.1k", "R", {1:"CC1", 2:"GND"}, fp=FP_R)
 add("R2", "5.1k", "R", {1:"CC2", 2:"GND"}, fp=FP_R)
-add("R3", "22", "R", {1:"USB_DP", 2:"USB_DP_MCU"}, fp=FP_R)
-add("R4", "22", "R", {1:"USB_DM", 2:"USB_DM_MCU"}, fp=FP_R)
-add("D1", "USBLC6-2SC6 (optional)", "USBLC6_ESD",
+# 0 ohm, not 22 ohm: the ESP32-S3 USB PHY already contains its series
+# termination, so an extra 22 ohm per leg would add 44 ohm differential to a
+# 90 ohm pair and squash the full-speed eye.  Keep the pads as tuning stubs.
+add("R3", "0", "R", {1:"USB_DP", 2:"USB_DP_MCU"}, fp=FP_R)
+add("R4", "0", "R", {1:"USB_DM", 2:"USB_DM_MCU"}, fp=FP_R)
+add("D1", "USBLC6-2SC6", "USBLC6_ESD",
     {1:"USB_DP", 2:"GND", 3:"USB_DM", 4:"USB_DM", 5:"VBUS", 6:"USB_DP"},
-    fp="Package_TO_SOT_SMD:SOT-23-6", dnp=True)
+    fp="Package_TO_SOT_SMD:SOT-23-6")
+# MCP73831 DS20001984H 6.1.1.2: input overvoltage protection "must be used when
+# the input power source is hot-pluggable.  This includes USB cables."
+add("D7", "SMAJ5.0A", "D_TVS", {1:"GND", 2:"VBUS"}, fp=FP_D_SMA)
 
 # --- MCP73831 charger ---
 add("U2", "MCP73831T-2ACI/OT", "MCP73831", {
     1:"CHG_STAT", 2:"GND", 3:"VBAT", 4:"VBUS", 5:"CHG_PROG",
 }, fp="Package_TO_SOT_SMD:SOT-23-5")
-add("R5", "4.7k", "R", {1:"CHG_PROG", 2:"GND"}, fp=FP_R)  # I_chg = 1000/4.7k ~= 213 mA
-add("R6", "1k", "R", {1:"+3V3", 2:"CHG_LED"}, fp=FP_R)
+add("R5", "10k", "R", {1:"CHG_PROG", 2:"GND"}, fp=FP_R)  # I_chg = 1000/10k = 100 mA
+# RLED returns to VBUS, NOT to +3V3.  This mirrors the datasheet application
+# circuit (Fig 6-1, RLED from VDD to STAT).  Referencing it to the regulated
+# rail would forward-bias the LED from the battery into the STAT pin whenever
+# USB is absent, back-feeding the charger's VDD node and the USB-C VBUS contact
+# and violating the "all I/O <= VDD + 0.3 V" absolute maximum.
+add("R6", "1k", "R", {1:"VBUS", 2:"CHG_LED"}, fp=FP_R)
 add("D2", "LED (charge)", "LED", {1:"CHG_LED", 2:"CHG_STAT"},
     fp="LED_THT:LED_D3.0mm")
 add("C1", "4.7uF", "C", {1:"VBUS", 2:"GND"}, fp=FP_C)   # charger input
 add("C2", "4.7uF", "C", {1:"VBAT", 2:"GND"}, fp=FP_C)   # charger output
-add("J3", "LiPo JST-PH", "Conn_JST_PH_2", {1:"VBAT", 2:"GND"},
+add("J3", "LiPo JST-PH (PROTECTED cell)", "Conn_JST_PH_2", {1:"VBAT", 2:"GND"},
     fp="Connector_JST:JST_PH_S2B-PH-K_1x02_P2.00mm_Horizontal")
+# Reverse-polarity crowbar.  JST-PH polarity is not standardised between cell
+# vendors; a backwards cell would otherwise drive VBAT negative and destroy U2
+# and U3 through their ESD structures.  D6 clamps the reversed input at about
+# -0.4 V and shorts the cell, which the cell's protection PCM interrupts --
+# hence the "protected cell" requirement on J3, which is load-bearing here.
+add("D6", "SS14 (reverse-polarity clamp)", "D_Schottky", {1:"GND", 2:"VBAT"},
+    fp=FP_D_SMA)
 
 # --- MCP1825S 3.3V/500mA LDO ---
 add("U3", "MCP1825S-3302E/DB", "MCP1825S-3302", {
@@ -243,6 +276,22 @@ add("U3", "MCP1825S-3302E/DB", "MCP1825S-3302", {
 }, fp="Package_TO_SOT_SMD:SOT-223-3_TabPin2")
 add("C3", "4.7uF", "C", {1:"VBAT", 2:"GND"}, fp=FP_C)   # LDO input  (>=1uF, X7R)
 add("C4", "4.7uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)   # LDO output (>=1uF, X7R, ESR<1ohm)
+# --- Rail buffering ---
+# The module datasheet lists IVDD >= 0.5 A as a recommended operating condition
+# and the MCP1825S is rated at exactly 500 mA, so an 802.11b TX burst (355 mA
+# peak) landing on top of a panel refresh has no headroom.
+#
+# Most of the buffering has to go on the LDO *input*, not the output: datasheet
+# 4.3 recommends "a maximum of 22 uF" on VOUT, and +3V3 already carries
+# C4 4.7 + C6 10 + C12 1 + C5 0.1 = 15.8 uF nominal.  C18 takes that to 20.5 uF
+# nominal -- still inside the limit, and X5R bias derating puts the effective
+# value comfortably below it.  Do not add further bulk to +3V3 without
+# re-checking this sum against the 22 uF ceiling.
+add("C18", "4.7uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C_1206)
+# CIN has no such ceiling (4.4 only suggests 1-4.7 uF as a minimum for battery
+# inputs), so the real burst reservoir lives here on VBAT.  This is also the
+# node a solar/supercap front end would attach to.
+add("C20", "100uF", "C", {1:"VBAT", 2:"GND"}, fp=FP_C_1206)
 
 # --- MCU support ---
 add("C5", "100nF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)
@@ -254,26 +303,41 @@ add("R8", "10k", "R", {1:"+3V3", 2:"BOOT"}, fp=FP_R)
 add("SW2", "BOOT", "SW_PUSH", {1:"BOOT", 2:"GND"}, fp=FP_SW_6MM)
 
 # --- User buttons: D-pad + select + cancel ---
-# Active-low to GND with no external pull-ups: firmware must configure each pin
-# as INPUT_PULLUP.  All six are RTC GPIOs (GPIO0-21), so any of them can serve
-# as a deep-sleep wake source.
-add("SW3", "BTN_UP",     "SW_PUSH", {1:"EXP_IO2",  2:"GND"}, fp=FP_SW_6MM)
-add("SW4", "BTN_DOWN",   "SW_PUSH", {1:"EXP_IO10", 2:"GND"}, fp=FP_SW_6MM)
-add("SW5", "BTN_LEFT",   "SW_PUSH", {1:"EXP_IO11", 2:"GND"}, fp=FP_SW_6MM)
-add("SW6", "BTN_RIGHT",  "SW_PUSH", {1:"EXP_IO12", 2:"GND"}, fp=FP_SW_6MM)
-add("SW7", "BTN_SELECT", "SW_PUSH", {1:"EXP_IO13", 2:"GND"}, fp=FP_SW_6MM)
-add("SW8", "BTN_CANCEL", "SW_PUSH", {1:"EXP_IO14", 2:"GND"}, fp=FP_SW_6MM)
-add("R14", "10k", "R", {1:"+3V3", 2:"EPD_CS"}, fp=FP_R)
-add("R15", "10k (DNP)", "R", {1:"STRAP_IO3", 2:"GND"}, fp=FP_R, dnp=True)
-add("R16", "10k", "R", {1:"EPD_RST", 2:"GND"}, fp=FP_R)
+# Active-low to GND.  All six are RTC GPIOs (GPIO0-21), so any of them can serve
+# as a deep-sleep wake source -- which is exactly why they get *external*
+# pull-ups: the digital-domain internal pull-ups drop out in deep sleep, and an
+# EXT1 wake source that floats produces phantom wakes that quietly eat the
+# battery.  100k (not 10k) keeps the held-button current to 33 uA.
+BUTTONS = [("SW3","BTN_UP"), ("SW4","BTN_DOWN"), ("SW5","BTN_LEFT"),
+           ("SW6","BTN_RIGHT"), ("SW7","BTN_SELECT"), ("SW8","BTN_CANCEL")]
+for _i, (_sw, _net) in enumerate(BUTTONS):
+    add(_sw, _net, "SW_PUSH", {1:_net, 2:"GND"}, fp=FP_SW_6MM)
+    add(f"R{17+_i}", "100k", "R", {1:"+3V3", 2:_net}, fp=FP_R)
+# 100k rather than 10k: these only ever fight a CMOS input's leakage, and 10k
+# would burn 330 uA whenever firmware drives the pin against the resistor.
+add("R14", "100k", "R", {1:"+3V3", 2:"EPD_CS"}, fp=FP_R)
+# Populated, NOT DNP.  Module datasheet 4.4: GPIO3 "does not have any internal
+# pull resistors and the strapping value must be controlled by the external
+# circuit that cannot be in a high impedance state."
+add("R15", "10k", "R", {1:"STRAP_IO3", 2:"GND"}, fp=FP_R)
+add("R16", "100k", "R", {1:"EPD_RST", 2:"GND"}, fp=FP_R)
 
 # --- Battery sense divider (into ADC1_CH0 / GPIO1) ---
-add("R9", "100k", "R", {1:"VBAT", 2:"VBAT_SENSE"}, fp=FP_R)
-add("R10", "100k", "R", {1:"VBAT_SENSE", 2:"GND"}, fp=FP_R)
+# 1M/1M, not 100k/100k: the divider is across the cell permanently, and at 100k
+# it drew 21 uA -- roughly triple the ESP32-S3's own 7-8 uA deep-sleep current
+# on a device whose entire premise is deep sleep.  1M brings that to 2.1 uA.
+# C8 is the ADC's charge reservoir, which is what makes the now-500k source
+# impedance acceptable to the SAR; allow ~250 ms of settling after wake and
+# average several samples.
+add("R9", "1M", "R", {1:"VBAT", 2:"VBAT_SENSE"}, fp=FP_R)
+add("R10", "1M", "R", {1:"VBAT_SENSE", 2:"GND"}, fp=FP_R)
 add("C8", "100nF", "C", {1:"VBAT_SENSE", 2:"GND"}, fp=FP_C)
 
 # --- E-paper DC/DC boost + charge pump (reference circuit, datasheet p.24) ---
-add("L1", "47uH", "L", {1:"EPD_SW", 2:"+3V3"}, fp=FP_L_1210)   # VCI = +3V3
+# 47 uH / Io >= 500 mA per the panel datasheet reference table.  Sunlord
+# MWSA0402S-470MT or Sumida CDRH2D18-470 -- confirm Isat >= 500 mA at order
+# time, the 4x4mm size class sits right around that rating.
+add("L1", "47uH", "L", {1:"EPD_SW", 2:"+3V3"}, fp=FP_L_MWSA0402S)   # VCI = +3V3
 add("Q1", "Si1304BDL / NX3008NBK", "MOSFET_N",
     {1:"EPD_GDR", 2:"EPD_RESE", 3:"EPD_SW"},
     fp="Package_TO_SOT_SMD:SOT-23")
@@ -283,16 +347,27 @@ add("R11", "2.2", "R", {1:"EPD_RESE", 2:"GND"}, fp=FP_R)   # RESE sense resistor
 add("D3", "MBR0530", "D_Schottky", {1:"EPD_SW", 2:"EPD_VGH"}, fp=FP_D_SOD123)     # ds D1: anode SW  -> cathode VGH
 add("D4", "MBR0530", "D_Schottky", {1:"EPD_CPMID", 2:"GND"}, fp=FP_D_SOD123)      # ds D2: anode CPMID -> cathode GND
 add("D5", "MBR0530", "D_Schottky", {1:"EPD_VGL", 2:"EPD_CPMID"}, fp=FP_D_SOD123)  # ds D3: anode VGL -> cathode CPMID
-add("C9",  "1uF/25V", "C", {1:"EPD_SW", 2:"EPD_CPMID"}, fp=FP_C)   # flying cap (ref C3)
-add("C10", "1uF/25V", "C", {1:"EPD_VGH", 2:"GND"}, fp=FP_C)        # ref C2
-add("C11", "1uF/25V", "C", {1:"EPD_VGL", 2:"GND"}, fp=FP_C)        # ref C4
+# 50V, not the datasheet's minimum 25V.  VGH runs near +20 V and VGL near -20 V;
+# an 0805 25V X7R at 20 V bias retains only ~20-30 % of its nominal value, so a
+# nominal 1 uF would behave like 250 nF exactly where the charge pump needs it.
+# 50V parts in the same 0805 body cost the same and land near 60 % retention.
+add("C9",  "1uF/50V", "C", {1:"EPD_SW", 2:"EPD_CPMID"}, fp=FP_C)   # flying cap (ref C3)
+add("C10", "1uF/50V", "C", {1:"EPD_VGH", 2:"GND"}, fp=FP_C)        # ref C2
+add("C11", "1uF/50V", "C", {1:"EPD_VGL", 2:"GND"}, fp=FP_C)        # ref C4
 # rail decoupling caps
 add("C12", "1uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)               # VCI/VDDIO (ref C0)
 add("C13", "1uF", "C", {1:"EPD_VDD", 2:"GND"}, fp=FP_C)            # VDD core  (ref C1)
-add("C14", "1uF/25V", "C", {1:"EPD_VSH1", 2:"GND"}, fp=FP_C)      # ref C5
-add("C15", "1uF/25V", "C", {1:"EPD_VSH2", 2:"GND"}, fp=FP_C)      # ref C6
-add("C16", "1uF/25V", "C", {1:"EPD_VSL", 2:"GND"}, fp=FP_C)       # ref C7
-add("C17", "1uF/25V", "C", {1:"EPD_VCOM", 2:"GND"}, fp=FP_C)      # ref C8
+add("C14", "1uF/50V", "C", {1:"EPD_VSH1", 2:"GND"}, fp=FP_C)      # ref C5
+add("C15", "1uF/50V", "C", {1:"EPD_VSH2", 2:"GND"}, fp=FP_C)      # ref C6
+add("C16", "1uF/50V", "C", {1:"EPD_VSL", 2:"GND"}, fp=FP_C)       # ref C7
+add("C17", "1uF/50V", "C", {1:"EPD_VCOM", 2:"GND"}, fp=FP_C)      # ref C8
+# VPP link.  The panel datasheet's reference circuit (p.24) leaves VPP
+# unconnected -- only VCI/VDDIO, VDD, VSH1, VSL and VCOM carry caps there.
+# Tying VPP to VCI is what most SSD1681-class modules do and is harmless (OTP
+# programming needs a far higher voltage than 3.3 V), but routing it through a
+# link means it can be lifted to match the reference exactly if the panel
+# misbehaves.  Populated by default.
+add("R23", "0", "R", {1:"EPD_VPP", 2:"+3V3"}, fp=FP_R)
 # optional external I2C temp sensor pull-ups (DNP by default)
 add("R12", "10k (DNP)", "R", {1:"EPD_TSCL", 2:"+3V3"}, fp=FP_R, dnp=True)
 add("R13", "10k (DNP)", "R", {1:"EPD_TSDA", 2:"+3V3"}, fp=FP_R, dnp=True)
@@ -304,8 +379,8 @@ add("J4", "I2C temp (optional)", "Conn_1x04",
 add("J5", "UART", "Conn_1x04",
     {1:"+3V3", 2:"GND", 3:"UART_TXD0", 4:"UART_RXD0"},
     fp="Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical")
-# EXP_IO2/10/11/12/13/14 are now dedicated to SW3-SW8 and are deliberately not
-# broken out here; the freed pins become extra ground returns.
+# GPIO2/10/11/12/13/14 are dedicated to SW3-SW8 (nets BTN_*) and are
+# deliberately not broken out here; the freed pins become extra ground returns.
 add("J6", "GPIO expansion", "Conn_2x12", {
     1:"+3V3", 2:"GND",
     3:"EXP_IO15", 4:"EXP_IO16", 5:"EXP_IO17", 6:"EXP_IO18",
@@ -320,11 +395,54 @@ add("#FLG1", "PWR_FLAG", "PWR_FLAG", {1:"VBUS"}, in_bom=False)
 add("#FLG2", "PWR_FLAG", "PWR_FLAG", {1:"GND"},  in_bom=False)
 
 
+# ----------------------------------------------------------------------------
+# Self-checks.  These run on every generate and fail loudly, because the netlist
+# is a pile of string literals: a typo or a half-finished rename silently
+# produces a schematic that still passes ERC while a signal goes nowhere.
+# ----------------------------------------------------------------------------
 # every real (BOM) component must carry a footprint or "Update PCB from
 # Schematic" fails; power-flag pseudo-components legitimately have none.
 missing = [i["ref"] for i in instances if i["in_bom"] and not i["fp"]]
 if missing:
     raise SystemExit(f"components without a footprint: {', '.join(missing)}")
+
+_errors = []
+
+# duplicate reference designators
+_seen = {}
+for i in instances:
+    if i["ref"] in _seen:
+        _errors.append(f"duplicate reference designator {i['ref']}")
+    _seen[i["ref"]] = i
+
+# every net key must name a pin that actually exists on that symbol
+_nets = {}
+for i in instances:
+    _pins = {n: e for n, nm, e in symdefs[i["lib"]].pins}
+    for num, net in i["nets"].items():
+        if num not in _pins:
+            _errors.append(f"{i['ref']}: pin {num!r} does not exist on {i['lib']}")
+            continue
+        if net is not None:
+            _nets.setdefault(net, []).append((i["ref"], num, _pins[num], i["dnp"]))
+
+for net, members in sorted(_nets.items()):
+    # a net touching one pin is a dangling signal -- usually a rename that was
+    # applied to one end of a connection but not the other.
+    if len(members) < 2:
+        _errors.append(f"net {net!r} has a single member: {members}")
+    # ...and the same thing once the DNP parts are depopulated
+    elif len([x for x in members if not x[3]]) < 2:
+        _errors.append(f"net {net!r} goes open when DNP parts are unpopulated: {members}")
+    # two things trying to drive the same wire
+    drivers = [x for x in members
+               if x[2] in ("output", "power_out", "open_collector")]
+    if len(drivers) > 1:
+        _errors.append(f"net {net!r} has {len(drivers)} drivers: {drivers}")
+
+if _errors:
+    raise SystemExit("netlist self-check failed:\n  " + "\n  ".join(_errors))
+print(f"self-check OK: {len(instances)} components, {len(_nets)} nets")
 
 # ----------------------------------------------------------------------------
 # Emit schematic
@@ -343,7 +461,8 @@ MAX_H = max(sd.height for sd in symdefs.values())
 LABEL_ROOM = 45.0     # global-label text length allowance
 PAGE_W = X0 + (COLS - 1) * COL_W + MAX_W / 2 + PIN_LEN + GRID + LABEL_ROOM + X0
 NOTE_Y = Y0 + ROWS_TOTAL * ROW_H
-PAGE_H = NOTE_Y + max(MAX_H / 2, GRID) + Y0
+NOTE_ROOM = 8 * GRID * 1.5      # room for the stacked sheet notes below the grid
+PAGE_H = NOTE_Y + max(MAX_H / 2, GRID) + NOTE_ROOM + Y0
 
 out = []
 out.append('(kicad_sch (version 20231120) (generator "epaper_gen")')
@@ -442,8 +561,17 @@ for idx, inst in enumerate(instances):
         )
         place_label(ex, ey, net, lab_ang, LABEL_SHAPE.get(et, "passive"), lab_justify)
 
-place_text(X0, NOTE_Y,
-           "J6 IO35-37 and IO47/48 assume non-octal-PSRAM, non-R16V module")
+for _n, _note in enumerate([
+    "J6 IO35-37 and IO47/48 assume non-octal-PSRAM, non-R16V module",
+    "J3 REQUIRES a LiPo cell with an integrated protection PCM. Nothing on this board",
+    "   stops over-discharge, and D6 relies on that PCM to clear a reverse-polarity fault.",
+    "   Verify cell polarity before first plug-in: JST-PH wiring varies between vendors.",
+    "U3 Iq is 120uA typ / 220uA max and dominates the standby budget - swap for a",
+    "   sub-30uA LDO (TLV75733P / AP2112K) if standby current matters.",
+    "Buttons SW3-SW8 use external 100k pull-ups (R17-R22) so they hold a defined level",
+    "   through deep sleep; firmware may still enable RTC pull-ups harmlessly in parallel.",
+]):
+    place_text(X0, NOTE_Y + _n * GRID * 1.5, _note)
 
 out.extend(sym_lines)
 out.extend(wire_lines)
