@@ -328,43 +328,38 @@ must be referenced to its own source.
 or 20 mV at a 500 mA burst. Negligible, and already accounted for in the sag
 table above. Its 6 A rating is 12× what this board draws.
 
-#### ⚠️ `Q2` pin numbering is unresolved — measure before ordering a PCB
+#### `Q2` pin numbering
 
-Two FS8205A datasheets are in `components/` and **neither states a
-pin-number-to-function table**, and KiCad has no FS8205A symbol:
+Neither FS8205A datasheet in `components/` carries a pin-number-to-function
+table, and KiCad has no FS8205A symbol, so this took two documents to pin down:
 
-| Source | What it gives | What it doesn't |
-|---|---|---|
-| `fs8205a.pdf` (Evvosemi) | schematic (D1/G1/S1, D2/G2/S2, common drain); package drawing numbering pins 1–3 bottom / 6–5–4 top | no function↔number link in either |
-| `fs8205a-techpublic.pdf` | isometric with functions: **one row `S1 · D1/D2 · S2`, the other `G1 · D1/D2 · G2`** | no pin numbers |
+| Source | What it gives |
+|---|---|
+| `fs8205a.pdf` (Evvosemi) | schematic only (D1/G1/S1, D2/G2/S2, common drain); package drawing numbers pins but labels no functions |
+| `fs8205a-techpublic.pdf` | **"Package and Pin Configuration" linking function to package position** |
 
-The Tech Public arrangement — sources at the ends of one row, gates at the ends
-of the other, a drain in the *middle of each row* — **contradicts** the
-commonly-quoted 8205A mapping the schematic currently uses, which puts a gate in
-the middle of the source row and both drains adjacent. So the clone datasheet
-did not resolve the question; it made it sharper.
+The Tech Public drawing is the one that resolves it:
 
-| | 1 | 2 | 3 | 4 | 5 | 6 |
-|---|---|---|---|---|---|---|
-| **(A) as wired now** | S1 | **G1** | S2 | G2 | D2 | **D1** |
-| **(B) Tech Public** | S1 | **D** | S2 | G2 | D | **G1** |
+```
+        pin 6  G1        pin 5  D1/D2      pin 4  G2
+        pin 1  S1        pin 2  D1/D2      pin 3  S2
+```
 
-They agree on pins 1, 3, 4 and 5 and differ only on **2 and 6**. Under (B) the
-current wiring would drive `PROT_DO` into a drain and tie `G1` to the drain node
-— the protection would silently not work. Reading numbers off the isometric
-means inferring pin 1 from a moulded dot, which is not solid enough to act on.
+Each half occupies one **end** of the package — FET1 is `S1`/`G1` at pins 1/6,
+FET2 is `S2`/`G2` at pins 3/4 — with the common drain brought out on the two
+**middle** pins. A symmetric leadframe, which is a good sign in itself.
 
-**Settle it with a DMM in about a minute:**
+> **This is not the commonly-quoted "8205A" mapping** (`1=S1 2=G1 3=S2 4=G2
+> 5=D2 6=D1`), which puts a gate in the middle of the source row. An earlier
+> revision wired that version and it was wrong: `PROT_DO` would have been driven
+> into a drain and `G1` tied to the drain node, so the protection would have
+> silently not worked. If you are cross-referencing other 8205A designs, expect
+> to see the other mapping and do not assume it applies.
 
-1. **Continuity** — the two pins shorted to each other are `D1`/`D2`.
-2. **Diode mode**, red probe on a candidate pin, black on the drain node — a
-   reading of ~0.5–0.7 V means that pin is a **source** (the body diode conducts
-   source→drain). Exactly two pins will do this.
-3. The **remaining two pins are the gates**; pair each with the source at its own
-   end of the package.
-
-Do this before committing to a PCB. Everything else in this design is confirmed
-against a datasheet; this is the one open item.
+Worth one bench check when the parts arrive, since it costs nothing: the two
+pins shorted to each other are the drains; in diode mode, red probe on a pin and
+black on the drain node reading ~0.5–0.7 V identifies a **source**; the
+remaining two pins are the **gates**.
 
 **`U4` costs 2.0 µA typ / 6.0 µA max** (`IDD`, datasheet p.4), which is why the
 standby budget below is *better* than the external-protection-board variant: the
@@ -744,7 +739,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | U1 | ESP32-S3-WROOM-1-N8 (quad flash, no PSRAM) | **Castellated module** (bottom pad optional) |
 | U2 | MCP73831T-2ACI/OT (4.2 V) | **SOT-23-5** (hand-solderable SMD) |
 | U4 | **DW01A** 1S protection controller | **SOT-23-6** (hand-solderable SMD) |
-| Q2 | **FS8205A** dual N-MOSFET, common drain | **SOT-23-6** — ⚠️ *pin numbering unresolved, measure before PCB, §4* |
+| Q2 | **FS8205A** dual N-MOSFET, common drain | **SOT-23-6** — *pinout is not the commonly-quoted one, see §4* |
 | R24 | 100 Ω (DW01A `VDD` feed) | 0805 |
 | R25 | 1 kΩ (DW01A `VM` sense) | 0805 |
 | C21 | 100 nF (DW01A `VDD`–`VSS`) | 0805 |
@@ -808,9 +803,9 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 - **Check PH2.0 polarity with a meter before the first plug-in.** The board has
   no reverse-polarity protection — §4 explains why the old crowbar was removed —
   so a reversed cell will destroy `U4` and possibly `Q2`.
-- **Measure `Q2`'s pin numbering before ordering a PCB.** Neither FS8205A
-  datasheet states it and the two available drawings disagree; §4 has the
-  candidates and a one-minute DMM procedure.
+- **`Q2`'s pinout is not the commonly-quoted 8205A one** — see §4 before
+  copying connections from another 8205A design. A one-minute DMM check
+  confirms it.
 
 ## 10. Thermal design (read before layout)
 
@@ -910,9 +905,13 @@ that is `TJ` ≈ 87 °C; with the large copper area the datasheet mentions
   KiCad 8.0.9 footprint file rather than assumed. Both rows are paralleled, so
   the cable works either way up. `D1` (USBLC6-2SC6) likewise uses the real
   SOT-23-6 pinout (1/6=I/O1, 3/4=I/O2, 2=GND, 5=VBUS).
-- **`U3`'s 120 µA quiescent current is the open item.** See §2 — everything else
-  on the board is sized for microamps and the regulator now dominates standby by
-  more than an order of magnitude.
+- **`U4`/`Q2` add on-board 1S battery protection** (§4), so `J3` takes a raw
+  cell. `Q2`'s pinout is **not** the commonly-quoted 8205A mapping — it comes
+  from the Tech Public package drawing, and copying pin assignments from another
+  8205A design would be wrong.
+- **There is no reverse-polarity protection** — the old `D6` crowbar was removed
+  because it would have been a 1 A diode standing in front of a 24 A cell with
+  nothing to interrupt the fault (§4). Check cell polarity with a meter.
 - Component placement in the schematic is auto-generated and rough; connectivity
   is by global label.
 - **ERC has not been re-run since these changes** — `kicad-cli` was not available

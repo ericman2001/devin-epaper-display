@@ -165,43 +165,30 @@ mk("DW01A", [
 
 # FS8205A dual N-channel MOSFET, SOT-23-6, common drain.
 #
-# *** UNRESOLVED: DO NOT ORDER A PCB WITHOUT MEASURING THIS FIRST ***
+# Pinout taken from the "Package and Pin Configuration" drawing in
+# components/fs8205a-techpublic.pdf, which is the only source of the two
+# FS8205A datasheets here that links function to package position:
 #
-# Two datasheets are in components/ and NEITHER states a pin-number-to-function
-# table, and KiCad has no FS8205A symbol:
+#       pin 6  G1      pin 5  D1/D2    pin 4  G2
+#       pin 1  S1      pin 2  D1/D2    pin 3  S2
 #
-#   fs8205a.pdf (Evvosemi) - "SOT23-6L Pin Configuration" shows only a schematic
-#       (D1/G1/S1, D2/G2/S2, drains common), no numbers.  Its package drawing
-#       numbers pins 1-3 bottom / 6-5-4 top, but labels no functions.
-#   fs8205a-techpublic.pdf - "Package and Pin Configuration" shows an isometric
-#       with functions but again no numbers.  Its arrangement is:
-#            one row:  S1   D1/D2   S2
-#            other:    G1   D1/D2   G2
-#       i.e. sources at the ends of one row, gates at the ends of the other,
-#       and a drain in the MIDDLE of each row.
+# i.e. each half occupies one END of the package (FET1 = S1/G1 at pins 1/6,
+# FET2 = S2/G2 at pins 3/4) with the common drain brought out on the two MIDDLE
+# pins.  That is a symmetric leadframe layout and it is what the drawing shows.
 #
-# That arrangement CONTRADICTS the mapping used below (the commonly-quoted
-# 8205A pinout), which puts a gate in the middle of the source row and both
-# drains adjacent on the other row.  The conflict is real and unresolved: the
-# Tech Public drawing is an actual document, but reading pin *numbers* off an
-# isometric relies on inferring pin 1 from a moulded dot, which is not solid.
+# Note this is NOT the commonly-quoted "8205A" mapping (1=S1 2=G1 3=S2 4=G2
+# 5=D2 6=D1), which puts a gate in the middle of the source row.  An earlier
+# revision of this file wired that version; it was wrong.  Under it, PROT_DO
+# would have been driven into a drain and G1 tied to the drain node, and the
+# protection would have silently not worked.
 #
-# The two candidates are:
-#   (A) as wired below:   1=S1 2=G1 3=S2 4=G2 5=D2 6=D1
-#   (B) Tech Public:      1=S1 2=D  3=S2 4=G2 5=D  6=G1
-# They agree on pins 1, 3, 4, 5 and differ on 2 and 6.  Under (B) this wiring
-# would drive PROT_DO into a drain and tie G1 to the drain node -- the
-# protection would not work.
-#
-# Settle it on the bench in a minute with a DMM (see README 4):
-#   1. continuity: the two pins shorted to each other are D1/D2.
-#   2. diode mode, red on candidate / black on the drain node: ~0.5-0.7 V means
-#      that pin is a SOURCE (body diode source->drain).  Two pins will do this.
-#   3. the remaining two pins are the gates; pair each with the source at its
-#      own end of the package.
+# Cheap confirmation on the bench, worth doing once: the two pins shorted to
+# each other are the drains; in diode mode, red probe on a pin and black on the
+# drain node reading ~0.5-0.7 V identifies a SOURCE (body diode source->drain);
+# the remaining two pins are the gates.
 mk("FS8205A", [
-    (1,"S1","passive"),(2,"G1","input"),(3,"S2","passive"),
-    (4,"G2","input"),(5,"D2","passive"),(6,"D1","passive"),
+    (1,"S1","passive"),(2,"D1/D2","passive"),(3,"S2","passive"),
+    (4,"G2","input"),(5,"D1/D2","passive"),(6,"G1","input"),
 ])
 
 
@@ -337,7 +324,7 @@ add("U4", "DW01A", "DW01A", {
 # discharge FET off by driving DO to VSS and the charge FET off by driving CO to
 # VM, so each gate must be referenced to its own source (datasheet p.6).
 add("Q2", "FS8205A", "FS8205A", {
-    1:"BATT_NEG", 2:"PROT_DO", 3:"GND", 4:"PROT_CO", 5:"PROT_MID", 6:"PROT_MID",
+    1:"BATT_NEG", 2:"PROT_MID", 3:"GND", 4:"PROT_CO", 5:"PROT_MID", 6:"PROT_DO",
 }, fp="Package_TO_SOT_SMD:SOT-23-6")
 # R1/C1/R2 of the datasheet application circuit.  100 ohm is the value the
 # datasheet both draws and uses as the test condition for the overcharge-restore
@@ -672,12 +659,12 @@ def main():
         "   A METER before first plug-in - a reversed cell will destroy U4.",
         "Keep U2 as the -2 (4.20V) option: U4 trips overcharge at 4.30V, so the 4.35V -3",
         "   part would fight the protection. Do NOT fit it even though the cell is LiHV.",
-        "*** Q2 PIN NUMBERING IS UNRESOLVED - MEASURE BEFORE ORDERING A PCB ***",
-        "   Neither FS8205A datasheet in components/ gives a pin-number table. The Tech",
-        "   Public drawing shows rows S1/D/S2 and G1/D/G2, which CONTRADICTS the mapping",
-        "   wired here (1=S1 2=G1 3=S2 4=G2 5=D2 6=D1). Candidate B is 2=D and 6=G1.",
-        "   DMM check: shorted pair = drains; diode-mode ~0.6V to the drain node = a",
-        "   source; the remaining two are gates. See README section 4.",
+        "Q2 pinout is 1=S1 2=D 3=S2 4=G2 5=D 6=G1, per the Package and Pin Configuration",
+        "   drawing in components/fs8205a-techpublic.pdf. Each FET half sits at one END of",
+        "   the package and the common drain is on the two MIDDLE pins. This is NOT the",
+        "   commonly-quoted 8205A mapping (2=G1, 6=D1) - do not copy that from other",
+        "   designs. Confirm once with a DMM: shorted pair = drains, ~0.6V in diode mode",
+        "   to the drain node = a source, remaining two = gates.",
         "U3 (SOT-23-5, 1=IN 2=GND 3=EN 4=NC 5=OUT) accepts TLV75733PDBVR / AP2112K-3.3 /",
         "   XC6220B331MR unchanged. EN is tied to IN - do not leave it floating.",
         "U3 is the DBV package: RthJA 231 C/W, no thermal pad. Fine for this board's",
