@@ -460,181 +460,192 @@ if _errors:
 print(f"self-check OK: {len(instances)} components, {len(_nets)} nets")
 
 # ----------------------------------------------------------------------------
-# Emit schematic
+# Emit the KiCad files.
+#
+# Everything above is import-safe: definitions and self-checks only.  The file
+# writing lives behind the __main__ guard so that tooling can `import gen_sch`
+# to inspect the netlist (BOM cross-checks, connectivity audits) without the
+# side effect of rewriting the schematic with fresh UUIDs -- which shows up as
+# a spurious diff in every generated file.
 # ----------------------------------------------------------------------------
-# layout instances on a coarse grid
-COLS = 6
-COL_W = 63.5    # 25 * 2.54
-ROW_H = 76.2    # 30 * 2.54
-X0, Y0 = 50.8, 50.8   # both multiples of 1.27 (keeps every endpoint on grid)
+def main():
+    COLS = 6
+    COL_W = 63.5    # 25 * 2.54
+    ROW_H = 76.2    # 30 * 2.54
+    X0, Y0 = 50.8, 50.8   # both multiples of 1.27 (keeps every endpoint on grid)
 
-# size the sheet to the content so nothing is clipped off-page.  Use a "User"
-# paper size computed from the grid extent plus room for global-label text.
-ROWS_TOTAL = (len(instances) + COLS - 1) // COLS
-MAX_W = max(sd.width for sd in symdefs.values())
-MAX_H = max(sd.height for sd in symdefs.values())
-LABEL_ROOM = 45.0     # global-label text length allowance
-PAGE_W = X0 + (COLS - 1) * COL_W + MAX_W / 2 + PIN_LEN + GRID + LABEL_ROOM + X0
-NOTE_Y = Y0 + ROWS_TOTAL * ROW_H
-NOTE_ROOM = 16 * GRID * 1.5      # room for the stacked sheet notes below the grid
-PAGE_H = NOTE_Y + max(MAX_H / 2, GRID) + NOTE_ROOM + Y0
+    # size the sheet to the content so nothing is clipped off-page.  Use a "User"
+    # paper size computed from the grid extent plus room for global-label text.
+    ROWS_TOTAL = (len(instances) + COLS - 1) // COLS
+    MAX_W = max(sd.width for sd in symdefs.values())
+    MAX_H = max(sd.height for sd in symdefs.values())
+    LABEL_ROOM = 45.0     # global-label text length allowance
+    PAGE_W = X0 + (COLS - 1) * COL_W + MAX_W / 2 + PIN_LEN + GRID + LABEL_ROOM + X0
+    NOTE_Y = Y0 + ROWS_TOTAL * ROW_H
+    NOTE_ROOM = 16 * GRID * 1.5      # room for the stacked sheet notes below the grid
+    PAGE_H = NOTE_Y + max(MAX_H / 2, GRID) + NOTE_ROOM + Y0
 
-out = []
-out.append('(kicad_sch (version 20231120) (generator "epaper_gen")')
-out.append(f'  (uuid "{ROOT_UUID}")')
-out.append(f'  (paper "User" {PAGE_W:.2f} {PAGE_H:.2f})')
-out.append('  (lib_symbols')
-for name in symdefs:
-    out.append(symdefs[name].lib_sexpr())
-out.append('  )')
+    out = []
+    out.append('(kicad_sch (version 20231120) (generator "epaper_gen")')
+    out.append(f'  (uuid "{ROOT_UUID}")')
+    out.append(f'  (paper "User" {PAGE_W:.2f} {PAGE_H:.2f})')
+    out.append('  (lib_symbols')
+    for name in symdefs:
+        out.append(symdefs[name].lib_sexpr())
+    out.append('  )')
 
-wire_lines = []
-label_lines = []
-text_lines = []
-nc_lines = []
-sym_lines = []
+    wire_lines = []
+    label_lines = []
+    text_lines = []
+    nc_lines = []
+    sym_lines = []
 
-LABEL_SHAPE = {
-    "input": "input", "power_in": "input",
-    "output": "output", "power_out": "output", "open_collector": "output",
-    "bidirectional": "bidirectional",
-}
+    LABEL_SHAPE = {
+        "input": "input", "power_in": "input",
+        "output": "output", "power_out": "output", "open_collector": "output",
+        "bidirectional": "bidirectional",
+    }
 
-def place_label(x, y, net, ang, shape="passive", justify=None):
-    # text extends away from the symbol: right-side labels (ang 0) are left
-    # justified, left-side labels (ang 180) are right justified
-    if justify is None:
-        justify = "right" if int(ang) == 180 else "left"
-    label_lines.append(
-        f'  (global_label "{net}" (shape {shape}) (at {x:.3f} {y:.3f} {ang}) (fields_autoplaced)\n'
-        f'    (effects (font (size 1.27 1.27)) (justify {justify}))\n'
-        f'    (uuid "{U()}"))'
-    )
-
-def place_text(x, y, text):
-    text_lines.append(
-        f'  (text "{text}" (exclude_from_sim no) (at {x:.3f} {y:.3f} 0)\n'
-        f'    (effects (font (size 1.27 1.27)) (justify left))\n'
-        f'    (uuid "{U()}"))'
-    )
-
-for idx, inst in enumerate(instances):
-    sd = symdefs[inst["lib"]]
-    col = idx % COLS
-    row = idx // COLS
-    px = X0 + col * COL_W
-    py = Y0 + row * ROW_H
-    ref = inst["ref"]
-    uu = U()
-    bom = 'yes' if inst["in_bom"] else 'no'
-    sym_lines.append(f'  (symbol (lib_id "epaper:{inst["lib"]}") (at {px:.3f} {py:.3f} 0) (unit 1)')
-    sym_lines.append(f'    (in_bom {bom}) (on_board yes)' + (' (dnp yes)' if inst["dnp"] else ''))
-    sym_lines.append(f'    (uuid "{uu}")')
-    sym_lines.append(f'    (property "Reference" "{ref}" (at {px:.3f} {py - sd.height/2 - 3.81:.3f} 0)')
-    sym_lines.append(f'      (effects (font (size 1.27 1.27))))')
-    val = inst["value"].replace('"', "")
-    sym_lines.append(f'    (property "Value" "{val}" (at {px:.3f} {py + sd.height/2 + 3.81:.3f} 0)')
-    sym_lines.append(f'      (effects (font (size 1.27 1.27))))')
-    fp = inst["fp"].replace('"', "")
-    sym_lines.append(f'    (property "Footprint" "{fp}" (at {px:.3f} {py:.3f} 0)')
-    sym_lines.append(f'      (effects (font (size 1.27 1.27)) hide))')
-    # pin instance uuids
-    for num, name, et in sd.pins:
-        sym_lines.append(f'    (pin "{num}" (uuid "{U()}"))')
-    sym_lines.append('    (instances')
-    sym_lines.append(f'      (project "epaper-display"')
-    sym_lines.append(f'        (path "/{ROOT_UUID}" (reference "{ref}") (unit 1))))')
-    sym_lines.append('  )')
-
-    # wires + labels per pin
-    for num, name, et in sd.pins:
-        lx, ly, ang, side = sd.pin_geom[num]
-        # schematic connection point (library +Y up -> schematic +Y down)
-        cx = px + lx
-        cy = py - ly
-        net = inst["nets"].get(num, NC)
-        if net is None and et == 'no_connect':
-            # pin is already electrically a no-connect; adding a NC flag is an
-            # ERC error, and the bare pin raises no violation, so leave it.
-            continue
-        if side == 'L':
-            ex = cx - GRID
-            lab_ang = 180
-            lab_justify = 'right'
-        else:
-            ex = cx + GRID
-            lab_ang = 0
-            lab_justify = 'left'
-        ey = cy
-        if net is None:
-            # no-connect flag at the pin tip
-            nc_lines.append(f'  (no_connect (at {cx:.3f} {cy:.3f}) (uuid "{U()}"))')
-            continue
-        wire_lines.append(
-            f'  (wire (pts (xy {cx:.3f} {cy:.3f}) (xy {ex:.3f} {ey:.3f}))\n'
-            f'    (stroke (width 0) (type default)) (uuid "{U()}"))'
+    def place_label(x, y, net, ang, shape="passive", justify=None):
+        # text extends away from the symbol: right-side labels (ang 0) are left
+        # justified, left-side labels (ang 180) are right justified
+        if justify is None:
+            justify = "right" if int(ang) == 180 else "left"
+        label_lines.append(
+            f'  (global_label "{net}" (shape {shape}) (at {x:.3f} {y:.3f} {ang}) (fields_autoplaced)\n'
+            f'    (effects (font (size 1.27 1.27)) (justify {justify}))\n'
+            f'    (uuid "{U()}"))'
         )
-        place_label(ex, ey, net, lab_ang, LABEL_SHAPE.get(et, "passive"), lab_justify)
 
-for _n, _note in enumerate([
-    "J6 IO35-37 and IO47/48 assume non-octal-PSRAM, non-R16V module",
-    "J3 REQUIRES 1S protection on the cell. The target pack (Turnigy BoltX LiHV 300mAh",
-    "   80C) is an unprotected drone cell - fit an inline DW01A-class 1S protection PCB.",
-    "   Nothing on this board stops over-discharge, and D6 shorts a reversed cell on",
-    "   purpose, relying on that PCM to clear the fault. An 80C 300mAh cell is rated for",
-    "   24A: an SS14 across it with nothing to interrupt is worse than no crowbar at all.",
-    "   Keep U2 as the -2 (4.20V) option: DW01A boards cut off overcharge near 4.30V, so",
-    "   do NOT fit the 4.35V -3 part even though the cell is LiHV. Check PH2.0 polarity.",
-    "U3 (SOT-23-5, 1=IN 2=GND 3=EN 4=NC 5=OUT) accepts TLV75733PDBVR / AP2112K-3.3 /",
-    "   XC6220B331MR unchanged. EN is tied to IN - do not leave it floating.",
-    "U3 is the DBV package: RthJA 231 C/W, no thermal pad. Fine for this board's",
-    "   burst load, but do NOT draw a sustained 500mA from +3V3 via J6.",
-    "Buttons SW3-SW8 use external 100k pull-ups (R17-R22) so they hold a defined level",
-    "   through deep sleep; firmware may still enable RTC pull-ups harmlessly in parallel.",
-]):
-    place_text(X0, NOTE_Y + _n * GRID * 1.5, _note)
+    def place_text(x, y, text):
+        text_lines.append(
+            f'  (text "{text}" (exclude_from_sim no) (at {x:.3f} {y:.3f} 0)\n'
+            f'    (effects (font (size 1.27 1.27)) (justify left))\n'
+            f'    (uuid "{U()}"))'
+        )
 
-out.extend(sym_lines)
-out.extend(wire_lines)
-out.extend(nc_lines)
-out.extend(label_lines)
-out.extend(text_lines)
+    for idx, inst in enumerate(instances):
+        sd = symdefs[inst["lib"]]
+        col = idx % COLS
+        row = idx // COLS
+        px = X0 + col * COL_W
+        py = Y0 + row * ROW_H
+        ref = inst["ref"]
+        uu = U()
+        bom = 'yes' if inst["in_bom"] else 'no'
+        sym_lines.append(f'  (symbol (lib_id "epaper:{inst["lib"]}") (at {px:.3f} {py:.3f} 0) (unit 1)')
+        sym_lines.append(f'    (in_bom {bom}) (on_board yes)' + (' (dnp yes)' if inst["dnp"] else ''))
+        sym_lines.append(f'    (uuid "{uu}")')
+        sym_lines.append(f'    (property "Reference" "{ref}" (at {px:.3f} {py - sd.height/2 - 3.81:.3f} 0)')
+        sym_lines.append(f'      (effects (font (size 1.27 1.27))))')
+        val = inst["value"].replace('"', "")
+        sym_lines.append(f'    (property "Value" "{val}" (at {px:.3f} {py + sd.height/2 + 3.81:.3f} 0)')
+        sym_lines.append(f'      (effects (font (size 1.27 1.27))))')
+        fp = inst["fp"].replace('"', "")
+        sym_lines.append(f'    (property "Footprint" "{fp}" (at {px:.3f} {py:.3f} 0)')
+        sym_lines.append(f'      (effects (font (size 1.27 1.27)) hide))')
+        # pin instance uuids
+        for num, name, et in sd.pins:
+            sym_lines.append(f'    (pin "{num}" (uuid "{U()}"))')
+        sym_lines.append('    (instances')
+        sym_lines.append(f'      (project "epaper-display"')
+        sym_lines.append(f'        (path "/{ROOT_UUID}" (reference "{ref}") (unit 1))))')
+        sym_lines.append('  )')
 
-# sheet instances block
-out.append('  (sheet_instances')
-out.append('    (path "/" (page "1"))')
-out.append('  )')
-out.append(')')
+        # wires + labels per pin
+        for num, name, et in sd.pins:
+            lx, ly, ang, side = sd.pin_geom[num]
+            # schematic connection point (library +Y up -> schematic +Y down)
+            cx = px + lx
+            cy = py - ly
+            net = inst["nets"].get(num, NC)
+            if net is None and et == 'no_connect':
+                # pin is already electrically a no-connect; adding a NC flag is an
+                # ERC error, and the bare pin raises no violation, so leave it.
+                continue
+            if side == 'L':
+                ex = cx - GRID
+                lab_ang = 180
+                lab_justify = 'right'
+            else:
+                ex = cx + GRID
+                lab_ang = 0
+                lab_justify = 'left'
+            ey = cy
+            if net is None:
+                # no-connect flag at the pin tip
+                nc_lines.append(f'  (no_connect (at {cx:.3f} {cy:.3f}) (uuid "{U()}"))')
+                continue
+            wire_lines.append(
+                f'  (wire (pts (xy {cx:.3f} {cy:.3f}) (xy {ex:.3f} {ey:.3f}))\n'
+                f'    (stroke (width 0) (type default)) (uuid "{U()}"))'
+            )
+            place_label(ex, ey, net, lab_ang, LABEL_SHAPE.get(et, "passive"), lab_justify)
 
-with open(SCH, "w") as f:
-    f.write("\n".join(out) + "\n")
-print("wrote", SCH, "with", len(instances), "components")
+    for _n, _note in enumerate([
+        "J6 IO35-37 and IO47/48 assume non-octal-PSRAM, non-R16V module",
+        "J3 REQUIRES 1S protection on the cell. The target pack (Turnigy BoltX LiHV 300mAh",
+        "   80C) is an unprotected drone cell - fit an inline DW01A-class 1S protection PCB.",
+        "   Nothing on this board stops over-discharge, and D6 shorts a reversed cell on",
+        "   purpose, relying on that PCM to clear the fault. An 80C 300mAh cell is rated for",
+        "   24A: an SS14 across it with nothing to interrupt is worse than no crowbar at all.",
+        "   Keep U2 as the -2 (4.20V) option: DW01A boards cut off overcharge near 4.30V, so",
+        "   do NOT fit the 4.35V -3 part even though the cell is LiHV. Check PH2.0 polarity.",
+        "U3 (SOT-23-5, 1=IN 2=GND 3=EN 4=NC 5=OUT) accepts TLV75733PDBVR / AP2112K-3.3 /",
+        "   XC6220B331MR unchanged. EN is tied to IN - do not leave it floating.",
+        "U3 is the DBV package: RthJA 231 C/W, no thermal pad. Fine for this board's",
+        "   burst load, but do NOT draw a sustained 500mA from +3V3 via J6.",
+        "Buttons SW3-SW8 use external 100k pull-ups (R17-R22) so they hold a defined level",
+        "   through deep sleep; firmware may still enable RTC pull-ups harmlessly in parallel.",
+    ]):
+        place_text(X0, NOTE_Y + _n * GRID * 1.5, _note)
 
-# ----------------------------------------------------------------------------
-# Emit a standalone symbol library + project sym-lib-table so the 'epaper'
-# library nickname resolves (silences lib_symbol_issues warnings and lets the
-# symbols be edited in the KiCad symbol editor).
-# ----------------------------------------------------------------------------
-lib = ['(kicad_symbol_lib (version 20231120) (generator "epaper_gen")']
-for name in symdefs:
-    lib.append(symdefs[name].lib_sexpr(prefix="", indent="  "))
-lib.append(')')
-with open("epaper.kicad_sym", "w") as f:
-    f.write("\n".join(lib) + "\n")
-print("wrote epaper.kicad_sym")
+    out.extend(sym_lines)
+    out.extend(wire_lines)
+    out.extend(nc_lines)
+    out.extend(label_lines)
+    out.extend(text_lines)
 
-with open("sym-lib-table", "w") as f:
-    f.write('(sym_lib_table\n  (version 7)\n'
-            '  (lib (name "epaper")(type "KiCad")(uri "${KIPRJMOD}/epaper.kicad_sym")'
-            '(options "")(descr "E-paper display project symbols"))\n)\n')
-print("wrote sym-lib-table")
+    # sheet instances block
+    out.append('  (sheet_instances')
+    out.append('    (path "/" (page "1"))')
+    out.append('  )')
+    out.append(')')
 
-# keep the project file's root-sheet UUID in sync with the schematic
-PRO = "epaper-display.kicad_pro"
-if os.path.exists(PRO):
-    import re as _re
-    txt = open(PRO).read()
-    txt = _re.sub(r'"[0-9a-fA-F-]{36}",\n      "Root"', f'"{ROOT_UUID}",\n      "Root"', txt)
-    txt = txt.replace("SHEET_UUID_PLACEHOLDER", ROOT_UUID)
-    open(PRO, "w").write(txt)
-    print("synced", PRO, "root uuid ->", ROOT_UUID)
+    with open(SCH, "w") as f:
+        f.write("\n".join(out) + "\n")
+    print("wrote", SCH, "with", len(instances), "components")
+
+    # ----------------------------------------------------------------------------
+    # Emit a standalone symbol library + project sym-lib-table so the 'epaper'
+    # library nickname resolves (silences lib_symbol_issues warnings and lets the
+    # symbols be edited in the KiCad symbol editor).
+    # ----------------------------------------------------------------------------
+    lib = ['(kicad_symbol_lib (version 20231120) (generator "epaper_gen")']
+    for name in symdefs:
+        lib.append(symdefs[name].lib_sexpr(prefix="", indent="  "))
+    lib.append(')')
+    with open("epaper.kicad_sym", "w") as f:
+        f.write("\n".join(lib) + "\n")
+    print("wrote epaper.kicad_sym")
+
+    with open("sym-lib-table", "w") as f:
+        f.write('(sym_lib_table\n  (version 7)\n'
+                '  (lib (name "epaper")(type "KiCad")(uri "${KIPRJMOD}/epaper.kicad_sym")'
+                '(options "")(descr "E-paper display project symbols"))\n)\n')
+    print("wrote sym-lib-table")
+
+    # keep the project file's root-sheet UUID in sync with the schematic
+    PRO = "epaper-display.kicad_pro"
+    if os.path.exists(PRO):
+        import re as _re
+        txt = open(PRO).read()
+        txt = _re.sub(r'"[0-9a-fA-F-]{36}",\n      "Root"', f'"{ROOT_UUID}",\n      "Root"', txt)
+        txt = txt.replace("SHEET_UUID_PLACEHOLDER", ROOT_UUID)
+        open(PRO, "w").write(txt)
+        print("synced", PRO, "root uuid ->", ROOT_UUID)
+
+
+
+if __name__ == "__main__":
+    main()
