@@ -165,21 +165,45 @@ mk("DW01A", [
 
 # FS8205A dual N-channel MOSFET, SOT-23-6, common drain.
 #
-# CAUTION: the FS8205A datasheet does NOT state the pin-number-to-function
-# mapping.  Its "SOT23-6L Pin Configuration" shows only the schematic (D1/G1/S1,
-# D2/G2/S2, drains internally common) with no numbers, and the package drawing
-# numbers the pins geometrically with no functions.  KiCad has no FS8205A symbol
-# either.  The mapping below is the industry-standard 8205A pinout, which is
-# consistent with the package geometry but is the ONE connection in this design
-# not confirmed from a datasheet -- buzz it out on the first board.
+# *** UNRESOLVED: DO NOT ORDER A PCB WITHOUT MEASURING THIS FIRST ***
 #
-# What actually matters is that each gate pairs with its own source: swapping
-# S1/G1 for S2/G2 would reference a gate to the wrong source and break the
-# protection.  D1/D2 are internally common, so their assignment cannot be wrong.
+# Two datasheets are in components/ and NEITHER states a pin-number-to-function
+# table, and KiCad has no FS8205A symbol:
+#
+#   fs8205a.pdf (Evvosemi) - "SOT23-6L Pin Configuration" shows only a schematic
+#       (D1/G1/S1, D2/G2/S2, drains common), no numbers.  Its package drawing
+#       numbers pins 1-3 bottom / 6-5-4 top, but labels no functions.
+#   fs8205a-techpublic.pdf - "Package and Pin Configuration" shows an isometric
+#       with functions but again no numbers.  Its arrangement is:
+#            one row:  S1   D1/D2   S2
+#            other:    G1   D1/D2   G2
+#       i.e. sources at the ends of one row, gates at the ends of the other,
+#       and a drain in the MIDDLE of each row.
+#
+# That arrangement CONTRADICTS the mapping used below (the commonly-quoted
+# 8205A pinout), which puts a gate in the middle of the source row and both
+# drains adjacent on the other row.  The conflict is real and unresolved: the
+# Tech Public drawing is an actual document, but reading pin *numbers* off an
+# isometric relies on inferring pin 1 from a moulded dot, which is not solid.
+#
+# The two candidates are:
+#   (A) as wired below:   1=S1 2=G1 3=S2 4=G2 5=D2 6=D1
+#   (B) Tech Public:      1=S1 2=D  3=S2 4=G2 5=D  6=G1
+# They agree on pins 1, 3, 4, 5 and differ on 2 and 6.  Under (B) this wiring
+# would drive PROT_DO into a drain and tie G1 to the drain node -- the
+# protection would not work.
+#
+# Settle it on the bench in a minute with a DMM (see README 4):
+#   1. continuity: the two pins shorted to each other are D1/D2.
+#   2. diode mode, red on candidate / black on the drain node: ~0.5-0.7 V means
+#      that pin is a SOURCE (body diode source->drain).  Two pins will do this.
+#   3. the remaining two pins are the gates; pair each with the source at its
+#      own end of the package.
 mk("FS8205A", [
     (1,"S1","passive"),(2,"G1","input"),(3,"S2","passive"),
     (4,"G2","input"),(5,"D2","passive"),(6,"D1","passive"),
 ])
+
 
 # generic 2-pin passives
 mk("R", [ (1,"1","passive"),(2,"2","passive") ])
@@ -648,8 +672,12 @@ def main():
         "   A METER before first plug-in - a reversed cell will destroy U4.",
         "Keep U2 as the -2 (4.20V) option: U4 trips overcharge at 4.30V, so the 4.35V -3",
         "   part would fight the protection. Do NOT fit it even though the cell is LiHV.",
-        "Q2 pin numbering is the industry-standard 8205A mapping - the FS8205A datasheet",
-        "   states no pin numbers and KiCad has no symbol. BUZZ IT OUT on the first board.",
+        "*** Q2 PIN NUMBERING IS UNRESOLVED - MEASURE BEFORE ORDERING A PCB ***",
+        "   Neither FS8205A datasheet in components/ gives a pin-number table. The Tech",
+        "   Public drawing shows rows S1/D/S2 and G1/D/G2, which CONTRADICTS the mapping",
+        "   wired here (1=S1 2=G1 3=S2 4=G2 5=D2 6=D1). Candidate B is 2=D and 6=G1.",
+        "   DMM check: shorted pair = drains; diode-mode ~0.6V to the drain node = a",
+        "   source; the remaining two are gates. See README section 4.",
         "U3 (SOT-23-5, 1=IN 2=GND 3=EN 4=NC 5=OUT) accepts TLV75733PDBVR / AP2112K-3.3 /",
         "   XC6220B331MR unchanged. EN is tied to IN - do not leave it floating.",
         "U3 is the DBV package: RthJA 231 C/W, no thermal pad. Fine for this board's",

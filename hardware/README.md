@@ -328,6 +328,44 @@ must be referenced to its own source.
 or 20 mV at a 500 mA burst. Negligible, and already accounted for in the sag
 table above. Its 6 A rating is 12× what this board draws.
 
+#### ⚠️ `Q2` pin numbering is unresolved — measure before ordering a PCB
+
+Two FS8205A datasheets are in `components/` and **neither states a
+pin-number-to-function table**, and KiCad has no FS8205A symbol:
+
+| Source | What it gives | What it doesn't |
+|---|---|---|
+| `fs8205a.pdf` (Evvosemi) | schematic (D1/G1/S1, D2/G2/S2, common drain); package drawing numbering pins 1–3 bottom / 6–5–4 top | no function↔number link in either |
+| `fs8205a-techpublic.pdf` | isometric with functions: **one row `S1 · D1/D2 · S2`, the other `G1 · D1/D2 · G2`** | no pin numbers |
+
+The Tech Public arrangement — sources at the ends of one row, gates at the ends
+of the other, a drain in the *middle of each row* — **contradicts** the
+commonly-quoted 8205A mapping the schematic currently uses, which puts a gate in
+the middle of the source row and both drains adjacent. So the clone datasheet
+did not resolve the question; it made it sharper.
+
+| | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| **(A) as wired now** | S1 | **G1** | S2 | G2 | D2 | **D1** |
+| **(B) Tech Public** | S1 | **D** | S2 | G2 | D | **G1** |
+
+They agree on pins 1, 3, 4 and 5 and differ only on **2 and 6**. Under (B) the
+current wiring would drive `PROT_DO` into a drain and tie `G1` to the drain node
+— the protection would silently not work. Reading numbers off the isometric
+means inferring pin 1 from a moulded dot, which is not solid enough to act on.
+
+**Settle it with a DMM in about a minute:**
+
+1. **Continuity** — the two pins shorted to each other are `D1`/`D2`.
+2. **Diode mode**, red probe on a candidate pin, black on the drain node — a
+   reading of ~0.5–0.7 V means that pin is a **source** (the body diode conducts
+   source→drain). Exactly two pins will do this.
+3. The **remaining two pins are the gates**; pair each with the source at its own
+   end of the package.
+
+Do this before committing to a PCB. Everything else in this design is confirmed
+against a datasheet; this is the one open item.
+
 **`U4` costs 2.0 µA typ / 6.0 µA max** (`IDD`, datasheet p.4), which is why the
 standby budget below is *better* than the external-protection-board variant: the
 2 µA replaces a ~3 µA estimate, and removing `D6` (below) saves another ~3 µA.
@@ -706,7 +744,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | U1 | ESP32-S3-WROOM-1-N8 (quad flash, no PSRAM) | **Castellated module** (bottom pad optional) |
 | U2 | MCP73831T-2ACI/OT (4.2 V) | **SOT-23-5** (hand-solderable SMD) |
 | U4 | **DW01A** 1S protection controller | **SOT-23-6** (hand-solderable SMD) |
-| Q2 | **FS8205A** dual N-MOSFET, common drain | **SOT-23-6** — *pin numbering not stated in its datasheet, §4* |
+| Q2 | **FS8205A** dual N-MOSFET, common drain | **SOT-23-6** — ⚠️ *pin numbering unresolved, measure before PCB, §4* |
 | R24 | 100 Ω (DW01A `VDD` feed) | 0805 |
 | R25 | 1 kΩ (DW01A `VM` sense) | 0805 |
 | C21 | 100 nF (DW01A `VDD`–`VSS`) | 0805 |
@@ -770,8 +808,9 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 - **Check PH2.0 polarity with a meter before the first plug-in.** The board has
   no reverse-polarity protection — §4 explains why the old crowbar was removed —
   so a reversed cell will destroy `U4` and possibly `Q2`.
-- **Buzz out `Q2`'s pin numbering on the first board.** The FS8205A datasheet
-  does not state which pin is which; §4 has the details.
+- **Measure `Q2`'s pin numbering before ordering a PCB.** Neither FS8205A
+  datasheet states it and the two available drawings disagree; §4 has the
+  candidates and a one-minute DMM procedure.
 
 ## 10. Thermal design (read before layout)
 
