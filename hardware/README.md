@@ -122,9 +122,9 @@ Estimated life on the target cell (a 300 mAh LiHV pack charged to 4.20 V,
 
 | Regulator | `IQ` | Total standby | Est. life |
 |---|---|---|---|
-| MCP1825S (old) | 120 µA | ~141 µA | ~2 months |
-| **TLV75733P** | **25 µA** | **~46 µA** | **~4½ months** |
-| TPS7A0533 (200 mA) | 1 µA | ~22 µA | ~6 months |
+| MCP1825S (old) | 120 µA | ~137 µA | ~2 months |
+| **TLV75733P** | **25 µA** | **~42 µA** | **~5 months** |
+| TPS7A0533 (200 mA) | 1 µA | ~18 µA | ~6 months |
 
 Dropping 120 → 25 µA roughly doubles the achievable life. Chasing 25 → 1 µA
 gains less than it looks: the cell's own self-discharge and the panel's 1–5 µA
@@ -290,38 +290,100 @@ a board that drives its own `VBUS` pin from the battery is not a board you want
 to ship. Referencing `R6` to `VBUS` makes the whole path disappear when USB is
 unplugged.
 
-### Battery protection — read this before plugging a cell in
+### Battery protection — on-board DW01A + FS8205A
 
-There is **no over-discharge protection on this board**. The MCP73831 has none,
-and the LDO will happily pull a cell down past 2.5 V and ruin it. `J3` therefore
-**requires a LiPo pack with an integrated protection PCM** — this is a hard BOM
-requirement, not a preference, and it is called out on the schematic sheet.
+The board carries its own **1S protection circuit** (`U4` DW01A + `Q2` FS8205A),
+wired exactly as the DW01A datasheet application circuit on p.9 draws it. `J3`
+is therefore the **raw cell**, not a protected pack:
 
-`D6` (SS14, SMA) is a reverse-polarity **crowbar** across the battery input:
-cathode to `VBAT`, anode to `GND`. Normally reverse-biased and invisible. If a
-cell is plugged in backwards it forward-biases, clamps the reversed input at
-about −0.4 V instead of letting it reach −4.2 V, and shorts the cell — which the
-pack's PCM then interrupts. So the crowbar and the protected-cell requirement
-are one mechanism, not two: **`D6` does nothing useful with an unprotected
-cell.** JST-PH polarity is not standardised between cell vendors (Adafruit and
-SparkFun are wired opposite), so check yours with a meter before first plug-in.
+```
+   cell +  ──┬──────────────────────────────────────────────►  VBAT (= B+ = P+)
+             │                    R24 100R
+             └──────────────/\/\/──────┬── VDD ┐
+                                        │        │  U4 DW01A
+                          C21 100nF ════╡        │
+                                        │        │   DO ──► G1
+   cell −  ──┬─────────────────────────┴── VSS ┘   CO ──► G2
+             │                                       VM ──┬──/\/\/── GND
+             │                                            │  R25 1k
+             └──► S1 ┤ Q2 FS8205A ├ S2 ──────────────────┴─────────►  GND (= P−)
+                     └── D1/D2 common ──┘
+```
 
-### Cell selection — Turnigy BoltX LiHV 300 mAh + inline protection
+The high side is never switched; both FETs sit in the **low side** between the
+cell's negative terminal (`BATT_NEG`) and board `GND`. Half 1 is discharge
+control (gate `DO`, source `B−`), half 2 is charge control (gate `CO`, source
+`P−`). That pairing is fixed by the DW01A, which turns the discharge FET off by
+driving `DO` to `VSS` and the charge FET off by driving `CO` to `VM` — each gate
+must be referenced to its own source.
+
+| Protection | Threshold | Delay | Source |
+|---|---|---|---|
+| Overcharge | 4.30 V ±50 mV (restore 4.10 V) | 110 ms | DW01A p.1, p.3 |
+| Over-discharge | 2.50 V ±75 mV (recover 2.90 V) | 55 ms | DW01A p.1, p.3 |
+| Over-current | 0.15 V ±20 mV across the FETs | 7 ms | DW01A p.1, p.3 |
+| Short circuit | `VSHORT` on `VM` | 200–600 µs | DW01A p.4 |
+
+`Q2` adds `2 × 20.5 mΩ` (typ, `VGS` = 4.5 V) to the ground return — about 41 mΩ,
+or 20 mV at a 500 mA burst. Negligible, and already accounted for in the sag
+table above. Its 6 A rating is 12× what this board draws.
+
+**`U4` costs 2.0 µA typ / 6.0 µA max** (`IDD`, datasheet p.4), which is why the
+standby budget below is *better* than the external-protection-board variant: the
+2 µA replaces a ~3 µA estimate, and removing `D6` (below) saves another ~3 µA.
+
+#### Why `D6` was removed
+
+Earlier revisions carried an SS14 reverse-polarity crowbar across the battery
+input. It has been **deleted**, and that is a deliberate safety decision rather
+than a simplification.
+
+Its entire rationale was *"short a reversed cell and let the pack's protection
+PCM interrupt the fault"*. With the protection moved on-board, a reversed
+connector is applied **upstream** of `U4`/`Q2` — so there is nothing left to
+clear the fault. An 80C 300 mAh cell can source roughly **24 A** into a 1 A
+diode. That turns the board's designated short-circuit path from a safeguard
+into a fire risk.
+
+**The residual risk is real and is not papered over: this board now has no
+reverse-polarity protection.** Plugging the cell in backwards will reverse-bias
+`U4` (its `VDD` sits 3.8 V below `VSS`, against a −0.3 V absolute maximum,
+current-limited to ~31 mA by `R24`) and will probably destroy it, possibly `Q2`
+too. The mitigations are the keyed connector and **checking polarity with a
+meter before the first plug-in** — see the assembly notes. Losing a ten-cent
+DW01A to a reversed connector is an acceptable failure; a 24 A short through a
+1 A diode is not.
+
+#### One corner worth knowing about
+
+The charger and the overcharge threshold are close enough that their tolerance
+bands can touch:
+
+| | Min | Typ | Max |
+|---|---|---|---|
+| `U2` MCP73831**-2** `VREG` | 4.168 V | 4.200 V | 4.232 V |
+| `U4` DW01A `VOC` @ 25 °C | 4.250 V | 4.300 V | 4.350 V |
+| `U4` DW01A `VOC`, −40…85 °C | 4.220 V | 4.300 V | 4.380 V |
+
+At 25 °C the worst case leaves 18 mV of margin. Across the full temperature
+range the bands can **overlap by 12 mV**, so an extreme corner could trip
+overcharge protection before the charger terminates normally. Typical parts sit
+100 mV apart and this never happens.
+
+It matters because of a DW01A quirk (datasheet p.6): once in overcharge
+protection, **if a charger is still present the DW01A will not restore even when
+the cell falls below `VOCR`** — the charger has to be unplugged first. So the
+symptom would be "charging stopped and won't resume until I unplug USB", not
+anything damaging. This is also a second, independent reason not to fit the
+4.35 V `-3` charger variant: it would trip overcharge protection *by design*.
+
+### Cell selection — Turnigy BoltX LiHV 300 mAh
 
 The target cell is a **Turnigy BoltX LiHV 1S 300 mAh 3.8 V 80C** whoop/micro-drone
-pack with a PH2.0 lead, **plus a small inline 1S protection PCB** (DW01A +
-FS8205A class) soldered between the cell and the connector.
-
-**The protection board is mandatory, not optional.** Drone packs ship as bare
-cells: maximum discharge rate, minimum weight, no protection circuit — the
-flight controller normally handles low-voltage cutoff. Nothing on this board
-stops over-discharge either, so a bare pack left connected would be drained past
-2.5 V and ruined. Worse, `D6`'s reverse-polarity crowbar is explicitly designed
-to *short the cell* and rely on the pack's protection to clear the fault. An 80C
-300 mAh cell is rated for **24 A** continuous; putting a 1 A SS14 across that
-with nothing to interrupt it is more dangerous than having no crowbar at all.
-With the protection PCB fitted, the DW01A's short-circuit detection trips in
-microseconds and the SS14's 50 A / 8.3 ms `IFSM` rating rides through it easily.
+pack with a PH2.0 lead. Drone packs ship as **bare cells** — maximum discharge
+rate, minimum weight, no protection circuit, because the flight controller
+normally handles low-voltage cutoff. That is why the 1S protection lives on this
+board (`U4`/`Q2`, above) rather than in the pack.
 
 **Charge to 4.20 V, not 4.35 V — keep `U2` as the `-2` option.** LiHV chemistry
 is rated for a 4.35 V charge, and the MCP73831 does offer a 4.35 V variant
@@ -341,8 +403,8 @@ would have created:
 |---|---|---|---|
 | Generic 300 mAh, 300 mΩ | TX 355 mA | 106 mV | 3.56 V |
 | Generic 300 mAh, 300 mΩ | TX + refresh 500 mA | 150 mV | 3.66 V |
-| **80C cell + PCM, ~80 mΩ** | **TX 355 mA** | **28 mV** | **3.48 V** |
-| **80C cell + PCM, ~80 mΩ** | **TX + refresh 500 mA** | **40 mV** | **3.55 V** |
+| **80C cell + `Q2`, ~75 mΩ** | **TX 355 mA** | **27 mV** | **3.48 V** |
+| **80C cell + `Q2`, ~75 mΩ** | **TX + refresh 500 mA** | **38 mV** | **3.55 V** |
 
 Even the combined TX-plus-refresh case now needs only 3.55 V of open-circuit
 voltage instead of 3.66 V. Serialising Wi-Fi and panel refresh (fetch,
@@ -365,35 +427,36 @@ Standby, with the protection board's own draw included:
 | ESP32-S3 deep sleep (RTC mem on) | 8.0 µA |
 | Panel deep sleep | 5.0 µA |
 | `R9`/`R10` divider (1M/1M) | 2.1 µA |
-| `D6` reverse leakage | 3.0 µA |
-| **DW01A protection PCB** | **3.0 µA** |
-| **Total** | **~46 µA → 4.20 mWh/day** |
+| `U4` DW01A `IDD` (typ; 6.0 µA max) | 2.0 µA |
+| **Total** | **~42 µA → 3.84 mWh/day** |
+
+Slightly *better* than the external-protection-board variant this replaced: the
+DW01A's 2 µA typ undercuts the ~3 µA budgeted for an outboard PCB, and deleting
+`D6` saves another ~3 µA of Schottky leakage.
 
 | Updates/day | Budget | Est. life |
 |---|---|---|
-| 1 | 5.4 mWh/day | ~171 days |
-| **4** | **6.8 mWh/day** | **~137 days** |
-| 12 | 10.5 mWh/day | ~89 days |
-| 24 (hourly) | 16.0 mWh/day | ~58 days |
+| 1 | 5.1 mWh/day | ~184 days |
+| **4** | **6.4 mWh/day** | **~144 days** |
+| 12 | 10.1 mWh/day | ~92 days |
+| 24 (hourly) | 15.6 mWh/day | ~59 days |
 
-So roughly **4½ months** at 4 updates/day. Past ~4 updates/day the Wi-Fi wake
+So roughly **4½–5 months** at 4 updates/day. Past ~4 updates/day the Wi-Fi wake
 cycles dominate and cadence is the only lever that matters.
 
 ### Before first plug-in
 
 - **Verify PH2.0 polarity with a meter.** This is a drone pack, and its housing
   wiring need not match the Adafruit/SparkFun convention that `J3`'s footprint
-  assumes (pin 1 = `VBAT`, pin 2 = `GND`). `D6` will crowbar a reversed cell and
-  the PCM will clear it, but that is a safety net, not a plan.
-- **Set the firmware cutoff around 3.4 V**, well above the DW01A's ~2.4 V
+  assumes. There is no reverse-polarity protection left on the board, so this
+  check is the only thing standing between a mis-wired lead and a dead `U4`.
+- **Set the firmware cutoff around 3.4 V**, well above `U4`'s 2.50 V
   over-discharge threshold. The protection board is the last line of defence
   against a ruined cell, not the normal operating limit.
 - Charging at 100 mA (`R5` = 10 kΩ) is 0.33 C — gentle, ~4 h to full, and no
   change from the current BOM.
 
-`D6` costs a little reverse leakage (a few µA at 3.7 V for an SS14). If you are
-chasing the last microamps, substitute a low-`Ir` Schottky such as a PMEG
-device — but fix the LDO `Iq` first, it is 30× larger.
+
 
 ---
 
@@ -401,7 +464,8 @@ device — but fix the LDO `Iq` first, it is 30× larger.
 
 ```
 USB-C VBUS ──► MCP73831 VDD (C1 4.7µF, D7 SMAJ5.0A TVS)
-MCP73831 VBAT ──► VBAT node ──► JST-PH LiPo (C2 4.7µF, D6 reverse clamp)
+MCP73831 VBAT ──► VBAT node ──► J3 cell B+ (C2 4.7µF)
+J3 cell B− ──► U4/Q2 1S protection (DW01A + FS8205A) ──► GND
 VBAT ──► TLV75733P IN/EN (C3 4.7µF + C20 100µF) ──► +3V3 (C4 4.7µF + C18 47µF) ──► ESP32-S3 + e-paper
 VBAT ──► R9/R10 (1M/1M divider, C8 100nF) ──► GPIO1 (ADC1_CH0) battery sense
 ```
@@ -574,7 +638,8 @@ floating GPIO3 boots fine today — it breaks the moment anyone burns
 | Net | Members |
 |-----|---------|
 | `VBUS` | USB-C `A4/B4/A9/B9`, MCP73831 VDD, `C1`, ESD `D1`, TVS `D7`, `R6` (STAT LED), `#FLG1` |
-| `VBAT` | MCP73831 VBAT, `U3` IN **and** EN, JST `J3`, `C2`, `C3`, `C20`, `D6` (reverse clamp), `R9` (sense) |
+| `VBAT` | MCP73831 VBAT, `U3` IN **and** EN, `J3` pin 1 (B+), `C2`, `C3`, `C20`, `R24`, `R9` (sense) |
+| `BATT_NEG` | `J3` pin 2 (cell B−), `U4` VSS, `Q2` S1, `C21` — **not** board GND |
 | `+3V3` | `U3` OUT, module 3V3, display VCI/VDDIO, `C4/C5/C6/C12/C18`, `R7/R8/R12/R13/R14/R17–R22/R23`, `L1`, header power |
 | `GND` | common ground / all decoupling returns / module GND pads / USB-C shield `S1` / `#FLG2` |
 
@@ -640,12 +705,16 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 |-----|--------------------|--------------------|
 | U1 | ESP32-S3-WROOM-1-N8 (quad flash, no PSRAM) | **Castellated module** (bottom pad optional) |
 | U2 | MCP73831T-2ACI/OT (4.2 V) | **SOT-23-5** (hand-solderable SMD) |
+| U4 | **DW01A** 1S protection controller | **SOT-23-6** (hand-solderable SMD) |
+| Q2 | **FS8205A** dual N-MOSFET, common drain | **SOT-23-6** — *pin numbering not stated in its datasheet, §4* |
+| R24 | 100 Ω (DW01A `VDD` feed) | 0805 |
+| R25 | 1 kΩ (DW01A `VM` sense) | 0805 |
+| C21 | 100 nF (DW01A `VDD`–`VSS`) | 0805 |
 | U3 | **TLV75733PDBVR** (3.3 V, 1 A, `IQ` 25 µA LDO) | **SOT-23-5** (hand-solderable SMD). Pin-compatible with AP2112K-3.3 / XC6220B331MR — see §2 |
 | Q1 | Si1304BDL / NX3008NBK N-MOSFET | **SOT-23** |
 | D1 | USBLC6-2SC6 ESD array (D+/D−) | **SOT-23-6** (0.95 mm pitch, hand-solderable) |
 | D2 | LED (charge status) | **THT** 3 mm LED |
 | D3,D4,D5 | MBR0530 Schottky | **SOD-123** (hand-solderable SMD) |
-| D6 | SS14 (battery reverse-polarity clamp) | **SMA** (hand-solderable SMD) |
 | D7 | SMAJ5.0A (VBUS transient clamp) | **SMA** (hand-solderable SMD) |
 | L1 | 47 µH (Sunlord MWSA0402S-470MT / Sumida CDRH2D18-470), **Isat ≥ 500 mA** | 4×4 mm shielded SMD inductor |
 | R1,R2 | 5.1 kΩ (USB CC1/CC2 `Rd`) | 0805 |
@@ -675,7 +744,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | C20 | 100 µF (VBAT / LDO-input burst reservoir) | 1206 X5R |
 | J1 | AES200200A00 24-pin 0.5 mm FPC | **FPC-to-0.1" breakout / 0.5 mm ZIF socket** |
 | J2 | USB-C receptacle (2.0, sink), 16-pin | `Connector_USB:USB_C_Receptacle_GCT_USB4085` |
-| J3 | Turnigy BoltX LiHV 1S 300 mAh 3.8 V 80C + **inline DW01A-class 1S protection PCB (mandatory, §4)** | **JST-PH 2-pin** THT connector |
+| J3 | Turnigy BoltX LiHV 1S 300 mAh 3.8 V 80C (raw cell — protection is on-board, §4) | **JST-PH 2-pin** THT connector |
 | J4 | I²C temp sensor *(optional)* | **THT** 1×4 0.1" header |
 | J5 | UART console | **THT** 1×4 0.1" header |
 | J6 | GPIO expansion | **THT** 2×12 0.1" header |
@@ -698,9 +767,11 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
   which is still comfortable with a fine tip.
 - The e-paper FPC connects through an FPC-to-0.1" breakout / 0.5 mm ZIF socket,
   so no fine-pitch FPC soldering is needed on this board.
-- **Fit the inline 1S protection PCB before connecting the cell at all**, and
-  check PH2.0 polarity with a meter. The pack is an unprotected drone cell; §4
-  explains why both steps are mandatory rather than advisory.
+- **Check PH2.0 polarity with a meter before the first plug-in.** The board has
+  no reverse-polarity protection — §4 explains why the old crowbar was removed —
+  so a reversed cell will destroy `U4` and possibly `Q2`.
+- **Buzz out `Q2`'s pin numbering on the first board.** The FS8205A datasheet
+  does not state which pin is which; §4 has the details.
 
 ## 10. Thermal design (read before layout)
 

@@ -154,6 +154,33 @@ mk("LDO_SOT23_5", [
 # N-channel MOSFET SOT-23 (G,S,D)
 mk("MOSFET_N", [ (1,"G","input"),(2,"S","passive"),(3,"D","passive") ])
 
+# DW01A 1S Li-ion protection controller, SOT-23-6.  Pinout from the datasheet
+# "引脚排列 / Pinning" table (p.2) and independently confirmed against KiCad
+# 8.0.9's Battery_Management:DW01A symbol, which uses the alternate names
+# OD/CS/OC/TD/VCC/GND for the same six pins in the same order.
+mk("DW01A", [
+    (1,"DO","output"),(2,"VM","input"),(3,"CO","output"),
+    (4,"NC","no_connect"),(5,"VDD","power_in"),(6,"VSS","power_in"),
+])
+
+# FS8205A dual N-channel MOSFET, SOT-23-6, common drain.
+#
+# CAUTION: the FS8205A datasheet does NOT state the pin-number-to-function
+# mapping.  Its "SOT23-6L Pin Configuration" shows only the schematic (D1/G1/S1,
+# D2/G2/S2, drains internally common) with no numbers, and the package drawing
+# numbers the pins geometrically with no functions.  KiCad has no FS8205A symbol
+# either.  The mapping below is the industry-standard 8205A pinout, which is
+# consistent with the package geometry but is the ONE connection in this design
+# not confirmed from a datasheet -- buzz it out on the first board.
+#
+# What actually matters is that each gate pairs with its own source: swapping
+# S1/G1 for S2/G2 would reference a gate to the wrong source and break the
+# protection.  D1/D2 are internally common, so their assignment cannot be wrong.
+mk("FS8205A", [
+    (1,"S1","passive"),(2,"G1","input"),(3,"S2","passive"),
+    (4,"G2","input"),(5,"D2","passive"),(6,"D1","passive"),
+])
+
 # generic 2-pin passives
 mk("R", [ (1,"1","passive"),(2,"2","passive") ])
 mk("C", [ (1,"1","passive"),(2,"2","passive") ])
@@ -266,15 +293,43 @@ add("D2", "LED (charge)", "LED", {1:"CHG_LED", 2:"CHG_STAT"},
     fp="LED_THT:LED_D3.0mm")
 add("C1", "4.7uF", "C", {1:"VBUS", 2:"GND"}, fp=FP_C)   # charger input
 add("C2", "4.7uF", "C", {1:"VBAT", 2:"GND"}, fp=FP_C)   # charger output
-add("J3", "LiPo JST-PH (PROTECTED cell)", "Conn_JST_PH_2", {1:"VBAT", 2:"GND"},
+# --- Battery connector and on-board 1S protection (DW01A + FS8205A) ---
+#
+# J3 is now the raw *cell*, not a protected pack: pin 1 is B+ (which is also P+,
+# since the high side is never switched) and pin 2 is B- on its own net.  The
+# back-to-back FETs sit in the low side between B- and board GND, exactly as the
+# DW01A datasheet application circuit (p.9) draws it.
+#
+# This replaces the previous "buy a cell with a protection PCM" requirement.
+# The target cell is a Turnigy BoltX LiHV whoop pack, which like all drone packs
+# is a bare cell -- so the protection has to live here.
+add("J3", "LiPo cell (B+/B-)", "Conn_JST_PH_2", {1:"VBAT", 2:"BATT_NEG"},
     fp="Connector_JST:JST_PH_S2B-PH-K_1x02_P2.00mm_Horizontal")
-# Reverse-polarity crowbar.  JST-PH polarity is not standardised between cell
-# vendors; a backwards cell would otherwise drive VBAT negative and destroy U2
-# and U3 through their ESD structures.  D6 clamps the reversed input at about
-# -0.4 V and shorts the cell, which the cell's protection PCM interrupts --
-# hence the "protected cell" requirement on J3, which is load-bearing here.
-add("D6", "SS14 (reverse-polarity clamp)", "D_Schottky", {1:"GND", 2:"VBAT"},
-    fp=FP_D_SMA)
+add("U4", "DW01A", "DW01A", {
+    1:"PROT_DO", 2:"PROT_VM", 3:"PROT_CO", 4:NC, 5:"PROT_VDD", 6:"BATT_NEG",
+}, fp="Package_TO_SOT_SMD:SOT-23-6")
+# Q2 half 1 = discharge control (gate DO, source B-); half 2 = charge control
+# (gate CO, source P-/GND).  That pairing is set by the DW01A: it turns the
+# discharge FET off by driving DO to VSS and the charge FET off by driving CO to
+# VM, so each gate must be referenced to its own source (datasheet p.6).
+add("Q2", "FS8205A", "FS8205A", {
+    1:"BATT_NEG", 2:"PROT_DO", 3:"GND", 4:"PROT_CO", 5:"PROT_MID", 6:"PROT_MID",
+}, fp="Package_TO_SOT_SMD:SOT-23-6")
+# R1/C1/R2 of the datasheet application circuit.  100 ohm is the value the
+# datasheet both draws and uses as the test condition for the overcharge-restore
+# threshold, so do not change it casually.
+add("R24", "100", "R", {1:"VBAT", 2:"PROT_VDD"}, fp=FP_R)
+add("C21", "100nF", "C", {1:"PROT_VDD", 2:"BATT_NEG"}, fp=FP_C)
+add("R25", "1k", "R", {1:"PROT_VM", 2:"GND"}, fp=FP_R)
+#
+# D6 (the SS14 reverse-polarity crowbar) has been REMOVED, deliberately.  Its
+# whole rationale was "short a reversed cell and let the pack's PCM interrupt
+# the fault".  With the protection moved on-board it sits *downstream* of a
+# reversed connector, so there is no longer anything upstream to clear the
+# fault -- and an 80C 300 mAh cell can source ~24 A into a 1 A diode.  Leaving
+# it in would make the board's designated short-circuit path a fire risk rather
+# than a safeguard.  Reverse polarity is now handled by the keyed connector plus
+# the documented meter check; see README 4 for the residual risk this leaves.
 
 # --- 3.3V LDO ---
 # TLV75733PDBVR: 1 A, Iq ~25 uA, SOT-23-5.  Replaces an MCP1825S-3302, whose
@@ -584,13 +639,17 @@ def main():
 
     for _n, _note in enumerate([
         "J6 IO35-37 and IO47/48 assume non-octal-PSRAM, non-R16V module",
-        "J3 REQUIRES 1S protection on the cell. The target pack (Turnigy BoltX LiHV 300mAh",
-        "   80C) is an unprotected drone cell - fit an inline DW01A-class 1S protection PCB.",
-        "   Nothing on this board stops over-discharge, and D6 shorts a reversed cell on",
-        "   purpose, relying on that PCM to clear the fault. An 80C 300mAh cell is rated for",
-        "   24A: an SS14 across it with nothing to interrupt is worse than no crowbar at all.",
-        "   Keep U2 as the -2 (4.20V) option: DW01A boards cut off overcharge near 4.30V, so",
-        "   do NOT fit the 4.35V -3 part even though the cell is LiHV. Check PH2.0 polarity.",
+        "J3 is the RAW CELL, not a protected pack: pin 1 = B+, pin 2 = B- on its own net.",
+        "   1S protection (U4 DW01A + Q2 FS8205A) is on-board, in the low side between B-",
+        "   and GND, per the DW01A datasheet application circuit p.9.",
+        "There is NO reverse-polarity protection. The old D6 crowbar was removed: it would",
+        "   now sit downstream of a reversed connector with nothing left to clear the fault,",
+        "   and an 80C 300mAh cell sources ~24A into a 1A diode. CHECK PH2.0 POLARITY WITH",
+        "   A METER before first plug-in - a reversed cell will destroy U4.",
+        "Keep U2 as the -2 (4.20V) option: U4 trips overcharge at 4.30V, so the 4.35V -3",
+        "   part would fight the protection. Do NOT fit it even though the cell is LiHV.",
+        "Q2 pin numbering is the industry-standard 8205A mapping - the FS8205A datasheet",
+        "   states no pin numbers and KiCad has no symbol. BUZZ IT OUT on the first board.",
         "U3 (SOT-23-5, 1=IN 2=GND 3=EN 4=NC 5=OUT) accepts TLV75733PDBVR / AP2112K-3.3 /",
         "   XC6220B331MR unchanged. EN is tied to IN - do not leave it floating.",
         "U3 is the DBV package: RthJA 231 C/W, no thermal pad. Fine for this board's",
