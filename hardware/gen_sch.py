@@ -140,9 +140,15 @@ mk("MCP73831", [
     (4,"VDD","power_in"),(5,"PROG","passive"),
 ])
 
-# MCP1825S-3302 SOT-223-3
-mk("MCP1825S-3302", [
-    (1,"VIN","power_in"),(2,"GND","power_in"),(3,"VOUT","power_out"),
+# Fixed 3.3V LDO in SOT-23-5.  This pinout (1=IN 2=GND 3=EN 4=NC 5=OUT) is the
+# de-facto standard for the package and is shared by every candidate part
+# considered here -- TLV75733PDBVR, AP2112K-3.3, XC6220B331MR and
+# TPS7A0533PDBV all drop into these pads unchanged, so the regulator can be
+# re-specced later without touching the schematic.  Verified against the
+# KiCad 8.0.9 Regulator_Linear symbol library.
+mk("LDO_SOT23_5", [
+    (1,"IN","power_in"),(2,"GND","power_in"),(3,"EN","input"),
+    (4,"NC","no_connect"),(5,"OUT","power_out"),
 ])
 
 # N-channel MOSFET SOT-23 (G,S,D)
@@ -270,27 +276,36 @@ add("J3", "LiPo JST-PH (PROTECTED cell)", "Conn_JST_PH_2", {1:"VBAT", 2:"GND"},
 add("D6", "SS14 (reverse-polarity clamp)", "D_Schottky", {1:"GND", 2:"VBAT"},
     fp=FP_D_SMA)
 
-# --- MCP1825S 3.3V/500mA LDO ---
-add("U3", "MCP1825S-3302E/DB", "MCP1825S-3302", {
-    1:"VBAT", 2:"GND", 3:"+3V3",
-}, fp="Package_TO_SOT_SMD:SOT-223-3_TabPin2")
+# --- 3.3V LDO ---
+# TLV75733PDBVR: 1 A, Iq ~25 uA, SOT-23-5.  Replaces an MCP1825S-3302, whose
+# 120 uA typ / 220 uA max quiescent current was ~15x the ESP32-S3's own
+# deep-sleep draw and dominated the standby budget outright.  On a board that
+# is asleep 99.98 % of the time, Iq is the only regulator figure of merit that
+# moves the battery life needle -- see README 2 for why this stayed linear
+# rather than becoming a switcher.
+#
+# EN is tied to IN so the rail is always on; it must not be left floating.
+add("U3", "TLV75733PDBVR", "LDO_SOT23_5", {
+    1:"VBAT", 2:"GND", 3:"VBAT", 4:NC, 5:"+3V3",
+}, fp="Package_TO_SOT_SMD:SOT-23-5")
 add("C3", "4.7uF", "C", {1:"VBAT", 2:"GND"}, fp=FP_C)   # LDO input  (>=1uF, X7R)
 add("C4", "4.7uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C)   # LDO output (>=1uF, X7R, ESR<1ohm)
 # --- Rail buffering ---
-# The module datasheet lists IVDD >= 0.5 A as a recommended operating condition
-# and the MCP1825S is rated at exactly 500 mA, so an 802.11b TX burst (355 mA
-# peak) landing on top of a panel refresh has no headroom.
+# The module datasheet lists IVDD >= 0.5 A as a recommended operating condition,
+# so an 802.11b TX burst (355 mA peak) landing on top of a panel refresh needs
+# somewhere to come from.  U3 is rated at 1 A with a 1.2 A minimum current limit
+# (TLV757P 5.5), which is real headroom rather than exactly-500 mA.
 #
-# Most of the buffering has to go on the LDO *input*, not the output: datasheet
-# 4.3 recommends "a maximum of 22 uF" on VOUT, and +3V3 already carries
-# C4 4.7 + C6 10 + C12 1 + C5 0.1 = 15.8 uF nominal.  C18 takes that to 20.5 uF
-# nominal -- still inside the limit, and X5R bias derating puts the effective
-# value comfortably below it.  Do not add further bulk to +3V3 without
-# re-checking this sum against the 22 uF ceiling.
-add("C18", "4.7uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C_1206)
-# CIN has no such ceiling (4.4 only suggests 1-4.7 uF as a minimum for battery
-# inputs), so the real burst reservoir lives here on VBAT.  This is also the
-# node a solar/supercap front end would attach to.
+# The bulk sits on the *output*, where the load transient actually is.  An
+# earlier revision was forced to put it on VBAT instead because the MCP1825S
+# capped COUT at 22 uF; TLV757P 7.1.1 allows "no greater than 200uF", so that
+# constraint is gone.  +3V3 now carries C4 4.7 + C6 10 + C12 1 + C5 0.1 +
+# C18 47 = 62.8 uF nominal, ~31 uF after the 50 % ceramic derating the same
+# section tells us to assume -- comfortably inside 200 uF.
+add("C18", "47uF", "C", {1:"+3V3", 2:"GND"}, fp=FP_C_1206)
+# Input-side bulk (7.1.1 asks for >= 1 uF; more helps a high-impedance source
+# and large fast load steps).  This is also the node a solar / supercap front
+# end would attach to.
 add("C20", "100uF", "C", {1:"VBAT", 2:"GND"}, fp=FP_C_1206)
 
 # --- MCU support ---
@@ -461,7 +476,7 @@ MAX_H = max(sd.height for sd in symdefs.values())
 LABEL_ROOM = 45.0     # global-label text length allowance
 PAGE_W = X0 + (COLS - 1) * COL_W + MAX_W / 2 + PIN_LEN + GRID + LABEL_ROOM + X0
 NOTE_Y = Y0 + ROWS_TOTAL * ROW_H
-NOTE_ROOM = 8 * GRID * 1.5      # room for the stacked sheet notes below the grid
+NOTE_ROOM = 12 * GRID * 1.5      # room for the stacked sheet notes below the grid
 PAGE_H = NOTE_Y + max(MAX_H / 2, GRID) + NOTE_ROOM + Y0
 
 out = []
@@ -566,8 +581,10 @@ for _n, _note in enumerate([
     "J3 REQUIRES a LiPo cell with an integrated protection PCM. Nothing on this board",
     "   stops over-discharge, and D6 relies on that PCM to clear a reverse-polarity fault.",
     "   Verify cell polarity before first plug-in: JST-PH wiring varies between vendors.",
-    "U3 Iq is 120uA typ / 220uA max and dominates the standby budget - swap for a",
-    "   sub-30uA LDO (TLV75733P / AP2112K) if standby current matters.",
+    "U3 (SOT-23-5, 1=IN 2=GND 3=EN 4=NC 5=OUT) accepts TLV75733PDBVR / AP2112K-3.3 /",
+    "   XC6220B331MR unchanged. EN is tied to IN - do not leave it floating.",
+    "U3 is the DBV package: RthJA 231 C/W, no thermal pad. Fine for this board's",
+    "   burst load, but do NOT draw a sustained 500mA from +3V3 via J6.",
     "Buttons SW3-SW8 use external 100k pull-ups (R17-R22) so they hold a defined level",
     "   through deep sleep; firmware may still enable RTC pull-ups harmlessly in parallel.",
 ]):

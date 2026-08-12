@@ -12,7 +12,7 @@ Files:
 | `epaper-display.kicad_sch` | Schematic (KiCad 7/8 S-expression, `kicad_sch`) |
 | `epaper.kicad_sym` | Project symbol library (referenced by the schematic) |
 | `sym-lib-table` | Maps the `epaper` library nickname to `epaper.kicad_sym` |
-| `epaper-display-schematic.pdf` | Rendered schematic |
+| `epaper-display-schematic.pdf` | Rendered schematic (**stale**, see note below) |
 | `gen_sch.py` | Generator that produces the schematic/library from the netlist definition |
 
 Connectivity is expressed with **global labels**, so the netlist is correct even
@@ -40,14 +40,14 @@ rearrange/route as desired.
 ```
              USB-C (VBUS 5V)
                   |
-                  +--> 22R --> D-/D+ (GPIO19 / GPIO20, native USB-Serial/JTAG)
+                  +--> 0R  --> D-/D+ (GPIO19 / GPIO20, native USB-Serial/JTAG)
                   |
                   v
         MCP73831 (SOT-23-5)  Li-ion/LiPo linear charger  (no power-path)
                   |  VBAT
                   v
-        single-cell LiPo (JST-PH)  <---- system battery node (VBAT) ---->  MCP1825S
-                                                                              |  (SOT-223, 3.3V/500mA LDO)
+        single-cell LiPo (JST-PH)  <---- system battery node (VBAT) ---->  TLV75733P
+                                                                              |  (SOT-23-5, 3.3V/1A LDO, IQ 25uA)
                                                                               v
                                                                             +3V3 rail
                                                                               |
@@ -62,78 +62,138 @@ rearrange/route as desired.
   **native USB** programming/serial link.
 - **Charging:** `MCP73831` charges the LiPo. Its `VBAT` pin is the system
   battery node and directly feeds the regulator (see §4 — no power-path).
-- **Regulation:** `MCP1825S-3302` (fixed 3.3V, 500 mA, SOT-223) generates the
-  `+3V3` rail that powers the module and the display.
+- **Regulation:** `TLV75733PDBVR` (fixed 3.3V, 1 A, SOT-23-5, `IQ` 25 µA)
+  generates the `+3V3` rail that powers the module and the display. See §2 for
+  why this is linear rather than a switcher.
 - **Programming/serial:** ESP32-S3 native USB-Serial/JTAG on **GPIO19 (D-)** and
   **GPIO20 (D+)**. No external USB-UART bridge required. UART0 (GPIO43/44) is
   also broken out on a header for an optional console.
 
 ---
 
-## 2. Regulator choice — MCP1825S (and the dropout trade-off)
+## 2. Regulator choice — TLV75733P (linear, low-IQ)
 
-The previous revision used an `MCP1700-3302E/TO` (250 mA). The ESP32-S3's Wi-Fi
-TX current peaks at roughly **350–500 mA**, which exceeds the MCP1700's ~250 mA
-rating and can cause brownouts during transmit. This revision therefore uses the
-**MCP1825S-3302** (fixed 3.3V, **500 mA**, SOT-223) to give headroom for those
-peaks.
+The ESP32-S3's Wi-Fi TX current peaks at **355 mA** (802.11b @20.5 dBm, module
+datasheet Table 6-4), and the module datasheet lists `IVDD ≥ 0.5 A` as a
+*recommended operating condition* (Table 6-2). The regulator therefore has to
+cover a ~0.5 A burst on a rail that is otherwise drawing microamps.
 
-**Dropout trade-off:** the MCP1825/MCP1825S dropout is **210 mV typ / 350 mV max
-at 500 mA** (datasheet DS22056B, Table 1-1 & §1.0). To stay in regulation at a
-500 mA peak, the input (VBAT) must remain above roughly:
+Two earlier revisions got this wrong in opposite directions: an `MCP1700-3302E/TO`
+(250 mA) that browned out during transmit, then an **`MCP1825S-3302`** (500 mA,
+SOT-223) that handled the burst but drew **120 µA typ / 220 µA max of quiescent
+current** — roughly 15× the ESP32-S3's own deep-sleep draw, which made the
+regulator the entire standby budget on a device that is asleep 99.98 % of the
+time.
+
+This revision uses the **`TLV75733PDBVR`** (SOT-23-5, 1 A, `IQ` 25 µA).
+
+### Why linear and not a switcher
+
+The intuition that a buck converter saves power is right in general and wrong
+here, for four separate reasons:
+
+1. **The duty cycle makes efficiency almost irrelevant.** Four wake cycles a day
+   at ~5 s each is ~20 s of activity in 86 400 — about **0.023 %**. An LDO's
+   efficiency is `VOUT/VIN`: 79 % at 4.2 V, 89 % at 3.7 V, 97 % near 3.4 V, so
+   call it ~85 % averaged over the discharge curve. A good buck might reach
+   90–93 %. Applied to ~1.8 mWh/day of active energy, that gap is worth about
+   **0.1 mWh/day** — roughly 2 % of the total budget, and far less than the
+   regulator's own `IQ` contributes.
+2. **A plain buck cannot even do the job.** A single LiPo runs 4.2 V down to
+   3.0 V, which *straddles* the 3.3 V output. Below ~3.4 V there is nothing left
+   to buck. Covering the full cell range needs a **buck-boost**, which is
+   bigger, costlier, and typically has 25–50 µA of quiescent current — so it
+   wins nothing on the axis that actually matters.
+3. **The good low-`IQ` switchers are unbuildable here.** The parts with genuinely
+   spectacular numbers (TPS62840: 60 nA `IQ`, 750 mA) ship in SOT-583 or WSON —
+   fine-pitch, exposed-pad, reflow. That breaks the constraint the whole BOM is
+   built around: hand-solderable with a fine-tip iron, no reflow, no hot air.
+4. **Switching noise, next to the wrong neighbours.** A switching node would sit
+   alongside the panel's own boost converter and a battery-sense divider with a
+   500 kΩ source impedance, on a board that has not been laid out yet.
+
+Since standby dominates, **`IQ` is the only regulator figure of merit that moves
+the needle** — and low `IQ` is something a linear part supplies perfectly well.
+
+### Where the returns stop
+
+Estimated life on a 500 mAh cell (1850 mWh), including ~1.8 mWh/day of active
+energy and ~1.2 mWh/day of cell self-discharge at 2 %/month:
+
+| Regulator | `IQ` | Total standby | Est. life |
+|---|---|---|---|
+| MCP1825S (old) | 120 µA | ~135 µA | ~4 months |
+| **TLV75733P** | **25 µA** | **~40 µA** | **~9 months** |
+| TPS7A0533 (200 mA) | 1 µA | ~16 µA | ~14 months |
+
+Dropping 120 → 25 µA roughly doubles the achievable life. Chasing 25 → 1 µA
+gains less than it looks: the cell's own self-discharge and the panel's 1–5 µA
+sleep current start to dominate, and the only SOT-23-5 parts down there
+(TPS7A05) top out at **200 mA**, which cannot serve a 355 mA TX burst. 25 µA is
+the knee of the curve.
+
+### TLV75733P specifics (SBVS322C)
+
+| Parameter | Value | Source |
+|---|---|---|
+| `VIN` range | 1.45 – **5.5 V** | §5.5 |
+| `IGND` (quiescent) | 25 µA typ, 31 µA max @25 °C, 33 µA max to +85 °C | §5.5 |
+| Dropout | **425 mV max at 1 A** (3.3 V out) | §1 |
+| Current limit | 1.2 A min / 1.55 A typ | §5.5 |
+| `COUT` | ≥ 0.47 µF, **≤ 200 µF**, X5R/X7R | §7.1.1 |
+| `CIN` | ≥ 1 µF | §7.1.1 |
+| `RθJA` (DBV, JEDEC) | **231.1 °C/W** — no thermal pad | §5.4 |
+
+**Dropout improves over the MCP1825S.** §7.1.2 states that `VDO` scales linearly
+with output current (the pass element is a PMOS acting as a resistor in
+dropout), so 425 mV at 1 A implies ~212 mV max at 500 mA, against the
+MCP1825S's 350 mV max. That moves the end-of-discharge floor down:
 
 ```
-VBAT_min ≈ 3.3V + 0.35V (max dropout) ≈ 3.65V   (≈ 3.51V at 210 mV typ)
+VBAT_min ≈ 3.3V + 0.21V ≈ 3.51V     (was ≈ 3.65V with the MCP1825S)
 ```
 
-Compared with the very-low-dropout MCP1700, this raises the end-of-discharge
-cutoff and therefore leaves a little usable LiPo capacity on the table at the
-bottom of the discharge curve. That is an accepted trade for reliable operation
-through Wi-Fi TX current spikes. (For a deep-sleeping e-paper device the average
-current is tiny; the peak is the concern.)
+which recovers a little of the usable capacity the previous revision gave away
+at the bottom of the curve.
 
-### Decoupling (sized per the MCP1825S datasheet)
+**Thermal is the one thing that got worse, and it is a deliberate trade.** The
+MCP1825S's SOT-223 tab was a genuine heat spreader; the DBV package has no
+thermal pad and `RθJA` = 231 °C/W. Worst case is a full battery into a full
+load: `(4.2 − 3.3) V × 0.5 A = 0.45 W`, which is ~104 °C of rise at steady
+state. That is fine here *only* because the load is a ~5 second burst at 0.023 %
+duty cycle and never reaches steady state — realistic sustained active current
+is ~150 mA (0.135 W, ~31 °C rise). Two consequences:
 
-The MCP1825/MCP1825S is a low-noise LDO whose **stability requires a minimum
-output capacitance of 1.0 µF** with an **ESR ≤ 1 Ω** (datasheet §3.4 & §4.3). It
-is characterized with `CIN = COUT = 4.7 µF X7R ceramic` (datasheet AC/DC
-Characteristics conditions). We follow the datasheet rather than reusing the
-MCP1700 values:
+- Give `U3` a decent copper pour anyway (§7.4.1 asks for copper planes and
+  thermal vias).
+- **Do not draw a sustained 500 mA from `+3V3` through the `J6` header.** The
+  part will current-limit and thermally protect itself, but it is not a
+  continuous half-amp supply in this package. If a future revision needs that,
+  the pin-compatible **DYD** package (same SOT-23-5 pinout, exposed pad,
+  `RθJA` 92.5 °C/W) is the answer — at the cost of needing reflow.
+
+**One margin reduction worth noting:** `VIN(max)` drops from the MCP1825S's 6.0 V
+to **5.5 V**. `VBAT` is regulated to 4.2 V by the charger so this is never
+approached in normal operation, and even a shorted-pass-transistor failure in
+`U2` would put only ~5 V on it — but the abuse headroom is thinner than it was.
+
+### The regulator is a drop-in socket
+
+`U3`'s symbol is a generic `LDO_SOT23_5` with the standard **1=IN, 2=GND, 3=EN,
+4=NC, 5=OUT** pinout (verified against KiCad 8.0.9's `Regulator_Linear`
+library). `TLV75733PDBVR`, `AP2112K-3.3TRG1`, `XC6220B331MR` and `TPS7A0533PDBV`
+all drop into these pads unchanged, so the part can be re-specced on
+availability without touching the schematic. `EN` is tied to `IN` so the rail is
+always on — **it must not be left floating.**
+
+### Decoupling
 
 | Cap | Value | Reason |
 |-----|-------|--------|
-| `C3` (input, `CIN`) | **4.7 µF X7R** | §4.4 recommends 1–4.7 µF for battery inputs |
-| `C4` (output, `COUT`) | **4.7 µF X7R** | ≥ 1 µF minimum for stability; X7R ceramic has ~50 mΩ ESR, well inside the ≤ 1 Ω window; matches the datasheet characterization value |
-
-A 22 µF maximum output cap is recommended by the datasheet (§4.3). That ceiling
-is the reason most of the rail buffering lives on the LDO *input* rather than
-its output — see §5.1.
-
-### Known weakness: quiescent current
-
-The MCP1825S draws **120 µA typ / 220 µA max** of quiescent current (datasheet
-§1.0, `Iq`). That is roughly **15× the ESP32-S3's own 7–8 µA deep-sleep
-current** and it dominates the standby budget completely:
-
-| Contributor | Standby current |
-|---|---|
-| MCP1825S `Iq` | **120 µA** |
-| ESP32-S3 deep sleep (RTC mem on) | 8 µA |
-| Panel deep sleep | 1–5 µA |
-| Battery divider `R9`/`R10` (1M/1M) | 2.1 µA |
-
-Everything else on this board was sized for microamps; the regulator is now the
-entire budget. If standby life matters — and especially for any solar or
-capacitor-buffered variant — swap `U3` for a low-`Iq` part such as
-**TLV75733PDBVR** (SOT-23-5, 1 A, `Iq` 25 µA, 250 mV dropout at 1 A) or
-**AP2112K-3.3TRG1** (SOT-23-5, 600 mA, `Iq` 55 µA). Both beat the MCP1825S on
-current capability, dropout *and* quiescent current; the cost is a 5-pin symbol
-(EN must be tied to VIN) instead of the current 3-pin one. This has **not** been
-done here — it is a deliberate open item, flagged on the schematic sheet.
-
-**SOT-223 tab:** pin 2 is `GND` and is electrically the heat-spreader tab. Solder
-the tab down to a `GND` copper pour for heat removal, per the datasheet package
-drawing.
+| `C3` (input, `CIN`) | 4.7 µF X7R 0805 | §7.1.1 asks for ≥ 1 µF |
+| `C20` (input bulk) | 100 µF X5R 1206 | high-impedance source / large fast load steps (§7.1.1) |
+| `C4` (output, `COUT`) | 4.7 µF X7R 0805 | ≥ 0.47 µF for stability |
+| `C18` (output bulk) | 47 µF X5R 1206 | burst reservoir — see §5.1 |
 
 ---
 
@@ -255,28 +315,32 @@ device — but fix the LDO `Iq` first, it is 30× larger.
 ```
 USB-C VBUS ──► MCP73831 VDD (C1 4.7µF, D7 SMAJ5.0A TVS)
 MCP73831 VBAT ──► VBAT node ──► JST-PH LiPo (C2 4.7µF, D6 reverse clamp)
-VBAT ──► MCP1825S VIN (C3 4.7µF + C20 100µF) ──► +3V3 (C4 4.7µF + C18 4.7µF) ──► ESP32-S3 + e-paper
+VBAT ──► TLV75733P IN/EN (C3 4.7µF + C20 100µF) ──► +3V3 (C4 4.7µF + C18 47µF) ──► ESP32-S3 + e-paper
 VBAT ──► R9/R10 (1M/1M divider, C8 100nF) ──► GPIO1 (ADC1_CH0) battery sense
 ```
 
-### 5.1 Rail buffering — why the bulk is on `VBAT`, not `+3V3`
+### 5.1 Rail buffering
 
 The module datasheet lists `IVDD ≥ 0.5 A` as a *recommended operating
-condition* (Table 6-2) and the MCP1825S is rated at exactly 500 mA, so an
-802.11b TX burst (**355 mA peak**, Table 6-4) landing on top of a panel refresh
-has no headroom at all.
+condition* (Table 6-2), and an 802.11b TX burst is **355 mA peak** (Table 6-4).
+`U3` is rated at 1 A with a 1.2 A minimum current limit, so the regulator itself
+has headroom; the capacitors are there to cover the transient while its loop
+responds.
 
-The obvious fix — pile bulk capacitance on `+3V3` — is capped by the regulator:
-datasheet §4.3 recommends **a maximum of 22 µF** on `VOUT`. `+3V3` already
-carries `C4` 4.7 + `C6` 10 + `C12` 1 + `C5` 0.1 = **15.8 µF nominal**, so there
-is only about 6 µF of room. `C18` (4.7 µF, 1206) takes it to 20.5 µF nominal and
-that is the end of the line — X5R bias derating keeps the effective value
-comfortably inside the limit, but **do not add further bulk to `+3V3` without
-re-checking that sum.**
+The bulk sits on the **output**, where the load transient actually is. (An
+earlier revision was forced to put it on `VBAT` instead, because the MCP1825S
+capped `COUT` at 22 µF. TLV757P §7.1.1 allows *"no greater than 200 µF"*, so
+that constraint is gone.)
 
-`CIN` has no such ceiling (§4.4 only suggests 1–4.7 µF as a *minimum* for
-battery inputs), so the real burst reservoir is `C20` (100 µF, 1206) on `VBAT`.
-This is also the node any solar / capacitor-bank front end would attach to.
+| Rail | Capacitors | Nominal | After 50 % derating |
+|---|---|---|---|
+| `+3V3` | `C4` 4.7 + `C6` 10 + `C12` 1 + `C5` 0.1 + `C18` 47 | 62.8 µF | ~31 µF |
+| `VBAT` | `C3` 4.7 + `C20` 100 (+ the cell) | 104.7 µF | ~52 µF |
+
+The 50 % derating figure is the datasheet's own instruction (§7.1.1: *"make sure
+ceramic capacitors are derated by 50 %"*). Both rails are comfortably inside the
+200 µF ceiling. `VBAT` is also the node any solar / supercap front end would
+attach to.
 
 ### 5.2 USB-C
 
@@ -423,9 +487,9 @@ floating GPIO3 boots fine today — it breaks the moment anyone burns
 | Net | Members |
 |-----|---------|
 | `VBUS` | USB-C `A4/B4/A9/B9`, MCP73831 VDD, `C1`, ESD `D1`, TVS `D7`, `R6` (STAT LED), `#FLG1` |
-| `VBAT` | MCP73831 VBAT, MCP1825S VIN, JST `J3`, `C2`, `C3`, `C20`, `D6` (reverse clamp), `R9` (sense) |
-| `+3V3` | MCP1825S VOUT, module 3V3, display VCI/VDDIO, `C4/C5/C6/C12/C18`, `R7/R8/R12/R13/R14/R17–R22/R23`, `L1`, header power |
-| `GND` | common ground / all decoupling returns / SOT-223 & module GND pads / USB-C shield `S1` / `#FLG2` |
+| `VBAT` | MCP73831 VBAT, `U3` IN **and** EN, JST `J3`, `C2`, `C3`, `C20`, `D6` (reverse clamp), `R9` (sense) |
+| `+3V3` | `U3` OUT, module 3V3, display VCI/VDDIO, `C4/C5/C6/C12/C18`, `R7/R8/R12/R13/R14/R17–R22/R23`, `L1`, header power |
+| `GND` | common ground / all decoupling returns / module GND pads / USB-C shield `S1` / `#FLG2` |
 
 `#FLG1`/`#FLG2` are `PWR_FLAG`s (not real parts) marking `VBUS`/`GND` as
 externally driven for ERC.
@@ -482,14 +546,14 @@ as `SW3`–`SW8` — they are no longer the `B3U-1000P` SMD switch.
 ## 8. Bill of Materials
 
 **PACKAGE / mounting column:** every part is THT, hand-solderable leaded SMD
-(SOT-23 / SOT-223 / SOD-123 / 0805 / TO-92-class), a castellated module, or a
+(SOT-23 / SOT-23-5 / SOT-23-6 / SOD-123 / SMA / 0805 / 1206), a castellated module, or a
 breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 
 | Ref | Value / Part number | Package / mounting |
 |-----|--------------------|--------------------|
 | U1 | ESP32-S3-WROOM-1-N8 (quad flash, no PSRAM) | **Castellated module** (bottom pad optional) |
 | U2 | MCP73831T-2ACI/OT (4.2 V) | **SOT-23-5** (hand-solderable SMD) |
-| U3 | **MCP1825S-3302E/DB** (3.3 V, 500 mA LDO) | **SOT-223-3** (hand-solderable SMD, tab = GND) — *see §2, `Iq` is the standby bottleneck* |
+| U3 | **TLV75733PDBVR** (3.3 V, 1 A, `IQ` 25 µA LDO) | **SOT-23-5** (hand-solderable SMD). Pin-compatible with AP2112K-3.3 / XC6220B331MR — see §2 |
 | Q1 | Si1304BDL / NX3008NBK N-MOSFET | **SOT-23** |
 | D1 | USBLC6-2SC6 ESD array (D+/D−) | **SOT-23-6** (0.95 mm pitch, hand-solderable) |
 | D2 | LED (charge status) | **THT** 3 mm LED |
@@ -512,6 +576,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | R23 | 0 Ω (display VPP link) | 0805 |
 | C1,C2 | 4.7 µF (charger in/out) | 0805 X7R |
 | C3,C4 | 4.7 µF (LDO in/out) | 0805 X7R |
+| C18 | 47 µF (+3V3 output bulk) | 1206 X5R |
 | C5 | 100 nF (module decoupling) | 0805 |
 | C6 | 10 µF (module bulk) | 0805 X7R |
 | C7 | 1 µF (EN RC) | 0805 |
@@ -520,7 +585,6 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | C12 | 1 µF (display VCI/VDDIO) | 0805 |
 | C13 | 1 µF (display VDD core) | 0805 |
 | C14,C15,C16,C17 | 1 µF / **50 V** (VSH1/VSH2/VSL/VCOM) | 0805 X7R |
-| C18 | 4.7 µF (+3V3 bulk — *do not exceed 22 µF total on this rail*) | 1206 X5R |
 | C20 | 100 µF (VBAT / LDO-input burst reservoir) | 1206 X5R |
 | J1 | AES200200A00 24-pin 0.5 mm FPC | **FPC-to-0.1" breakout / 0.5 mm ZIF socket** |
 | J2 | USB-C receptacle (2.0, sink), 16-pin | `Connector_USB:USB_C_Receptacle_GCT_USB4085` |
@@ -539,8 +603,8 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 - Solder the **ESP32-S3-WROOM-1-N8** via its edge castellations (drag-solder). Its
   **bottom GND/thermal pad is redundant and may be left unsoldered** (GND is on
   castellations 1 & 40) — no reflow needed.
-- Solder the **MCP1825S SOT-223 tab (pin 2, GND)** flat onto a GND copper pour
-  for heat-spreading.
+- `U3` (SOT-23-5) has no thermal pad and `RθJA` = 231 °C/W. Give it a copper
+  pour and thermal vias anyway — see §2 for the burst-vs-continuous limits.
 - SOT-23 / SOT-23-5 / SOT-23-6 / SOD-123 / SMA / 0805 / 1206 parts hand-solder
   easily; tin one pad, place the part, then solder the remaining pins.
 - The finest-pitch SMT part is the ESD array `D1` (SOT-23-6, 0.95 mm pitch),
