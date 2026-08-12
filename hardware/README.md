@@ -117,14 +117,15 @@ the needle** — and low `IQ` is something a linear part supplies perfectly well
 
 ### Where the returns stop
 
-Estimated life on a 500 mAh cell (1850 mWh), including ~1.8 mWh/day of active
-energy and ~1.2 mWh/day of cell self-discharge at 2 %/month:
+Estimated life on the **300 mAh** cell this design targets (1110 mWh nominal,
+~1000 mWh usable down to a 3.5 V floor), at 4 updates/day and including
+~0.74 mWh/day of cell self-discharge at 2 %/month:
 
 | Regulator | `IQ` | Total standby | Est. life |
 |---|---|---|---|
-| MCP1825S (old) | 120 µA | ~135 µA | ~4 months |
-| **TLV75733P** | **25 µA** | **~40 µA** | **~9 months** |
-| TPS7A0533 (200 mA) | 1 µA | ~16 µA | ~14 months |
+| MCP1825S (old) | 120 µA | ~138 µA | ~2 months |
+| **TLV75733P** | **25 µA** | **~43 µA** | **~5 months** |
+| TPS7A0533 (200 mA) | 1 µA | ~19 µA | ~7 months |
 
 Dropping 120 → 25 µA roughly doubles the achievable life. Chasing 25 → 1 µA
 gains less than it looks: the cell's own self-discharge and the panel's 1–5 µA
@@ -269,9 +270,11 @@ P = (VDD_max − VPTH_min) × I_REG = (5.5V − 2.8V) × 213mA ≈ 0.57 W
 ```
 
 At 100 mA the same worst case is `0.27 W → 62 °C rise`, which stays out of
-thermal regulation even on modest copper. A 100 mA charge is ~0.2 C for a
-500 mAh cell — a full charge takes longer, but this is a device that sits on a
-desk and sleeps, and the charger no longer runs hot.
+thermal regulation even on modest copper. A 100 mA charge is **0.33 C** for the
+300 mAh cell this design targets — comfortably inside the 0.5 C that small pouch
+cells typically permit — and takes about 3 h of constant-current plus taper,
+call it 4 h to full. This is a device that sits on a desk and sleeps, so the
+slower charge costs nothing and the charger no longer runs hot.
 
 ### Why the STAT LED returns to `VBUS`, not `+3V3`
 
@@ -303,6 +306,66 @@ pack's PCM then interrupts. So the crowbar and the protected-cell requirement
 are one mechanism, not two: **`D6` does nothing useful with an unprotected
 cell.** JST-PH polarity is not standardised between cell vendors (Adafruit and
 SparkFun are wired opposite), so check yours with a meter before first plug-in.
+
+### Cell selection — 300 mAh, and what that constrains
+
+The design targets a **300 mAh 3.7 V single-cell LiPo with an integrated
+protection PCM**. Two consequences follow from the small capacity, and only one
+of them is about energy.
+
+**Energy (the easy one).** At 4 updates/day, ~1000 mWh of usable capacity gives
+roughly **5 months** per charge. The update cadence dominates everything else
+above about 4/day:
+
+| Updates/day | Budget | Est. life |
+|---|---|---|
+| 1 | 5.0 mWh/day | ~200 days |
+| **4** | **6.4 mWh/day** | **~155 days** |
+| 12 | 10.1 mWh/day | ~99 days |
+| 24 (hourly) | 15.6 mWh/day | ~64 days |
+| 96 (¼-hourly) | 48.7 mWh/day | ~21 days |
+
+Standby is a flat ~3.8 mWh/day floor; past ~4 updates/day the Wi-Fi wake cycles
+are the whole story. If the target is "a year between charges", the lever is
+cadence, not capacity.
+
+**Internal resistance (the one that bites).** Small cells have markedly higher
+`Ri` than large ones — a 300 mAh pouch is typically **200–400 mΩ** including its
+protection PCM, against maybe 150 mΩ for a 500 mAh cell. `Ri` sets the voltage
+sag under a Wi-Fi burst, and that sag stacks on top of the LDO's dropout
+requirement. The cell's open-circuit voltage has to cover both:
+
+| Cell `Ri` | Load | Sag | `VBAT` needed | Cell OCV needed |
+|---|---|---|---|---|
+| 200 mΩ | TX only, 355 mA | 71 mV | 3.45 V | **3.52 V** |
+| 300 mΩ | TX only, 355 mA | 106 mV | 3.45 V | **3.56 V** |
+| 400 mΩ | TX only, 355 mA | 142 mV | 3.45 V | **3.59 V** |
+| 300 mΩ | TX **+** panel refresh, 500 mA | 150 mV | 3.51 V | **3.66 V** |
+
+A LiPo at 3.66 V open-circuit is only ~25 % discharged, so the *combined* case
+would strand roughly the bottom quarter of the cell — you would still have
+charge, but not enough headroom to transmit with it.
+
+**The firmware architecture is what buys that back.** Fetching data, closing the
+connection, and only then doing the processing and panel refresh keeps Wi-Fi TX
+and the panel's boost converter from ever overlapping. That drops the worst case
+from the 500 mA row to the 355 mA row and moves the floor from 3.66 V to
+~3.56 V — around 10–15 % state of charge instead of 25 %. Serialising those two
+activities is worth more here than any component choice.
+
+Practical consequences when buying a cell and writing firmware:
+
+- **Check the cell's `Ri` spec, don't just buy the cheapest 300 mAh pouch.** The
+  difference between a 200 mΩ and a 400 mΩ cell is ~70 mV of headroom, which is
+  real capacity at the bottom of the curve.
+- Confirm the cell permits ≥ 1.2 C discharge (355 mA on a 300 mAh cell is 1.2 C).
+  Brief bursts at that rate are normal for small pouches, but it is worth
+  checking rather than assuming.
+- **Configure the brownout detector and gate transmits on `VBAT`.** The sense
+  divider on GPIO1 exists for exactly this: read it before opening a connection
+  and skip the update if the cell cannot support the burst, rather than
+  discovering the limit as a BOD reset loop at 10 % charge.
+- Charging at 100 mA (`R5` = 10 kΩ) is 0.33 C — a good match, no change needed.
 
 `D6` costs a little reverse leakage (a few µA at 3.7 V for an SS14). If you are
 chasing the last microamps, substitute a low-`Ir` Schottky such as a PMEG
@@ -588,7 +651,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | C20 | 100 µF (VBAT / LDO-input burst reservoir) | 1206 X5R |
 | J1 | AES200200A00 24-pin 0.5 mm FPC | **FPC-to-0.1" breakout / 0.5 mm ZIF socket** |
 | J2 | USB-C receptacle (2.0, sink), 16-pin | `Connector_USB:USB_C_Receptacle_GCT_USB4085` |
-| J3 | LiPo battery — **must have an integrated protection PCM** | **JST-PH 2-pin** THT connector |
+| J3 | LiPo battery, **300 mAh 3.7 V, protection PCM required**, prefer `Ri` ≤ 300 mΩ (§4) | **JST-PH 2-pin** THT connector |
 | J4 | I²C temp sensor *(optional)* | **THT** 1×4 0.1" header |
 | J5 | UART console | **THT** 1×4 0.1" header |
 | J6 | GPIO expansion | **THT** 2×12 0.1" header |
