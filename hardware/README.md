@@ -164,8 +164,8 @@ state. That is fine here *only* because the load is a ~5 second burst at 0.023 %
 duty cycle and never reaches steady state — realistic sustained active current
 is ~150 mA (0.135 W, ~31 °C rise). Two consequences:
 
-- Give `U3` a decent copper pour anyway (§7.4.1 asks for copper planes and
-  thermal vias).
+- Give `U3` a decent copper pour anyway — see **§10**, which works the numbers
+  for every load case and explains why copper beats a stick-on heatsink here.
 - **Do not draw a sustained 500 mA from `+3V3` through the `J6` header.** The
   part will current-limit and thermally protect itself, but it is not a
   continuous half-amp supply in this package. If a future revision needs that,
@@ -603,8 +603,8 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 - Solder the **ESP32-S3-WROOM-1-N8** via its edge castellations (drag-solder). Its
   **bottom GND/thermal pad is redundant and may be left unsoldered** (GND is on
   castellations 1 & 40) — no reflow needed.
-- `U3` (SOT-23-5) has no thermal pad and `RθJA` = 231 °C/W. Give it a copper
-  pour and thermal vias anyway — see §2 for the burst-vs-continuous limits.
+- Neither regulator needs a heatsink, but both want copper — `U2` more than
+  `U3`. See **§10** for the junction-temperature numbers and the layout rules.
 - SOT-23 / SOT-23-5 / SOT-23-6 / SOD-123 / SMA / 0805 / 1206 parts hand-solder
   easily; tin one pad, place the part, then solder the remaining pins.
 - The finest-pitch SMT part is the ESD array `D1` (SOT-23-6, 0.95 mm pitch),
@@ -615,7 +615,89 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
   not standardised between cell vendors. `D6` will crowbar a reversed cell rather
   than let it destroy `U2`/`U3`, but that only works with a protected pack.
 
-## 10. Status / not included
+## 10. Thermal design (read before layout)
+
+No heatsinks are needed on this board, but two parts want copper. Since there is
+no PCB yet, the reasoning is recorded here so it survives to layout time.
+
+### Why copper, not a stick-on heatsink
+
+`U3` is a SOT-23-5 with no thermal pad, and the temptation is to glue a small
+heatsink to it. That is the wrong tool, for two reasons the datasheet makes
+plain:
+
+**The heat leaves through the leads, not the top.** `RθJC(top)` is
+**118.4 °C/W** (§5.4) — that is junction to the *top surface of the plastic*
+alone. Any top-mounted heatsink sits in series behind that. So even a
+magically perfect heatsink, holding the case at ambient, cannot bring `RθJA`
+below ~118 °C/W.
+
+**Copper alone beats that, for free.** TI quotes the same DBV package twice:
+**231.1 °C/W** on the JEDEC board (2s2p, and note the qualifier — *"no vias to
+internal plane and bottom layer"*) versus **100.8 °C/W** on their EVM. Same die,
+same package; the only difference is copper and vias. That is a **2.3×
+improvement at zero cost**, and it lands below what a perfect top-side heatsink
+could theoretically reach.
+
+A 2.9 × 2.8 mm stick-on sink also means a thermal-tape interface over ~0.08 cm²
+and a lump of mass cantilevered off a hand-soldered 5-lead part. More risk of
+shearing the part off the board than thermal benefit.
+
+### `U3` junction temperature by load case
+
+`TJ = TA + RθJA × PD` (§7.1.5), `PD = (VIN − VOUT) × IOUT`, worst case at a full
+4.2 V cell, `TA` = 25 °C. `TJ(MAX)` = 125 °C, thermal shutdown at 165 °C.
+
+| Load case | `PD` | `TJ` @231 °C/W | `TJ` @100.8 °C/W |
+|---|---|---|---|
+| Deep sleep | ~0 W | 25 °C | 25 °C |
+| Wi-Fi RX / connected (95 mA) | 0.086 W | 45 °C | 34 °C |
+| **Long processing, 240 MHz dual-core (108 mA)** | **0.097 W** | **47 °C** | **35 °C** |
+| Wi-Fi TX peak, 802.11b (355 mA, brief) | 0.320 W | 99 °C | 57 °C |
+| Continuous 500 mA drawn via `J6` | 0.450 W | **129 °C** ✗ | 70 °C |
+
+Two things fall out of this table:
+
+- **A long compute session is not the thermal case.** At 240 MHz with both cores
+  running 128-bit accesses the module draws ~108 mA (module datasheet Table 6-6,
+  modem-sleep) — a *low-current* sustained load. 0.097 W is 47 °C of junction
+  temperature even on a deliberately bad board. It is a non-event.
+- **The only case that breaches `TJ(MAX)` is a sustained half-amp pulled through
+  the expansion header**, and copper alone takes it from 129 °C to 70 °C. That
+  is the case the §2 warning is about, and it is fixed by layout rather than by
+  a heatsink.
+
+### `U2` is the part that actually runs hot
+
+The charger, not the regulator, is the sustained dissipator. Out of
+preconditioning at 100 mA with a 5.5 V input, `PD = (5.5 − 2.8) × 0.1 = 0.27 W`
+— nearly 3× `U3`'s compute-session figure, and it holds for the *entire charge
+cycle* rather than for seconds. At the MCP73831's 230 °C/W minimum-copper `θJA`
+that is `TJ` ≈ 87 °C; with the large copper area the datasheet mentions
+(130 °C/W) it is ≈ 60 °C. **If copper is poured in only one place, pour it at
+`U2`.**
+
+### Layout rules
+
+1. `U2` first: flood copper around its `VSS` pin (pin 2) and give it a via field
+   to the opposite-side plane. MCP73831 datasheet §6.2 and Figures 6-4/6-5 show
+   the intended pattern.
+2. `U3`: pin 2 (`GND`) is the primary heat path. Connect it to the ground pour
+   with a **solid** connection, not a thermal-relief spoke, and drop 4–8 × 0.3 mm
+   vias into the pour right beside the pin. Widen the `IN`/`OUT` copper too —
+   those leads conduct heat as well. TLV757P §7.4.1: *"use copper planes for
+   device connections"*, *"place thermal vias around the device"*.
+3. Keep `CIN`/`COUT` (`C3`/`C4`) tight to the pins on both regulators.
+4. Keep both away from the module's antenna keep-out and from the panel boost
+   switching node (`EPD_SW`).
+5. If a future revision really does need a continuous half-amp on `+3V3`, change
+   the package rather than adding a heatsink: the **DYD** variant is the same
+   SOT-23-5 pinout with an exposed pad at 92.5 °C/W — at the cost of needing
+   reflow, which is why it is not the default here.
+
+---
+
+## 11. Status / not included
 
 - **PCB layout is not included yet** — this is a schematic-level deliverable,
   but every real (BOM) component has a KiCad standard-library footprint
