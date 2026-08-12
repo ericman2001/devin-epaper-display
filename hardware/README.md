@@ -117,15 +117,14 @@ the needle** — and low `IQ` is something a linear part supplies perfectly well
 
 ### Where the returns stop
 
-Estimated life on the **300 mAh** cell this design targets (1110 mWh nominal,
-~1000 mWh usable down to a 3.5 V floor), at 4 updates/day and including
-~0.74 mWh/day of cell self-discharge at 2 %/month:
+Estimated life on the target cell (a 300 mAh LiHV pack charged to 4.20 V,
+~930 mWh usable — see §4), at 4 updates/day:
 
 | Regulator | `IQ` | Total standby | Est. life |
 |---|---|---|---|
-| MCP1825S (old) | 120 µA | ~138 µA | ~2 months |
-| **TLV75733P** | **25 µA** | **~43 µA** | **~5 months** |
-| TPS7A0533 (200 mA) | 1 µA | ~19 µA | ~7 months |
+| MCP1825S (old) | 120 µA | ~141 µA | ~2 months |
+| **TLV75733P** | **25 µA** | **~46 µA** | **~4½ months** |
+| TPS7A0533 (200 mA) | 1 µA | ~22 µA | ~6 months |
 
 Dropping 120 → 25 µA roughly doubles the achievable life. Chasing 25 → 1 µA
 gains less than it looks: the cell's own self-discharge and the panel's 1–5 µA
@@ -307,65 +306,90 @@ are one mechanism, not two: **`D6` does nothing useful with an unprotected
 cell.** JST-PH polarity is not standardised between cell vendors (Adafruit and
 SparkFun are wired opposite), so check yours with a meter before first plug-in.
 
-### Cell selection — 300 mAh, and what that constrains
+### Cell selection — Turnigy BoltX LiHV 300 mAh + inline protection
 
-The design targets a **300 mAh 3.7 V single-cell LiPo with an integrated
-protection PCM**. Two consequences follow from the small capacity, and only one
-of them is about energy.
+The target cell is a **Turnigy BoltX LiHV 1S 300 mAh 3.8 V 80C** whoop/micro-drone
+pack with a PH2.0 lead, **plus a small inline 1S protection PCB** (DW01A +
+FS8205A class) soldered between the cell and the connector.
 
-**Energy (the easy one).** At 4 updates/day, ~1000 mWh of usable capacity gives
-roughly **5 months** per charge. The update cadence dominates everything else
-above about 4/day:
+**The protection board is mandatory, not optional.** Drone packs ship as bare
+cells: maximum discharge rate, minimum weight, no protection circuit — the
+flight controller normally handles low-voltage cutoff. Nothing on this board
+stops over-discharge either, so a bare pack left connected would be drained past
+2.5 V and ruined. Worse, `D6`'s reverse-polarity crowbar is explicitly designed
+to *short the cell* and rely on the pack's protection to clear the fault. An 80C
+300 mAh cell is rated for **24 A** continuous; putting a 1 A SS14 across that
+with nothing to interrupt it is more dangerous than having no crowbar at all.
+With the protection PCB fitted, the DW01A's short-circuit detection trips in
+microseconds and the SS14's 50 A / 8.3 ms `IFSM` rating rides through it easily.
+
+**Charge to 4.20 V, not 4.35 V — keep `U2` as the `-2` option.** LiHV chemistry
+is rated for a 4.35 V charge, and the MCP73831 does offer a 4.35 V variant
+(`MCP73831T-3ACI/OT`, datasheet §1.0 `VREG`). Do *not* fit it here: standard
+DW01A-based protection boards cut off overcharge at about **4.3 V**, so a 4.35 V
+charger would fight the protection circuit. Charging an HV cell to 4.20 V is
+entirely safe — it is an undercharge — and costs roughly 13 % of the nameplate
+capacity. It also meaningfully improves calendar life, which matters on a device
+that sits near full charge for months at a time.
+
+**The 80C rating is wildly overspecified for this load, and that is fine.** We
+draw 355 mA, about 1.2C. The one thing it does buy is very low internal
+resistance, which removes the voltage-sag concern that a generic 300 mAh cell
+would have created:
+
+| Cell | Load | Sag | Cell OCV needed |
+|---|---|---|---|
+| Generic 300 mAh, 300 mΩ | TX 355 mA | 106 mV | 3.56 V |
+| Generic 300 mAh, 300 mΩ | TX + refresh 500 mA | 150 mV | 3.66 V |
+| **80C cell + PCM, ~80 mΩ** | **TX 355 mA** | **28 mV** | **3.48 V** |
+| **80C cell + PCM, ~80 mΩ** | **TX + refresh 500 mA** | **40 mV** | **3.55 V** |
+
+Even the combined TX-plus-refresh case now needs only 3.55 V of open-circuit
+voltage instead of 3.66 V. Serialising Wi-Fi and panel refresh (fetch,
+disconnect, then process and refresh) is still the right firmware structure, but
+it is no longer load-bearing for the power budget — it is just good practice.
+
+### Energy budget
+
+| | |
+|---|---|
+| Nameplate | 300 mAh × 3.8 V = 1140 mWh *(rated at a 4.35 V charge)* |
+| Charged to 4.20 V | ~87 % → ~261 mAh |
+| Usable to a ~3.4 V firmware cutoff | ~248 mAh ≈ **930 mWh** |
+
+Standby, with the protection board's own draw included:
+
+| Contributor | Current |
+|---|---|
+| `U3` `IGND` | 25.0 µA |
+| ESP32-S3 deep sleep (RTC mem on) | 8.0 µA |
+| Panel deep sleep | 5.0 µA |
+| `R9`/`R10` divider (1M/1M) | 2.1 µA |
+| `D6` reverse leakage | 3.0 µA |
+| **DW01A protection PCB** | **3.0 µA** |
+| **Total** | **~46 µA → 4.20 mWh/day** |
 
 | Updates/day | Budget | Est. life |
 |---|---|---|
-| 1 | 5.0 mWh/day | ~200 days |
-| **4** | **6.4 mWh/day** | **~155 days** |
-| 12 | 10.1 mWh/day | ~99 days |
-| 24 (hourly) | 15.6 mWh/day | ~64 days |
-| 96 (¼-hourly) | 48.7 mWh/day | ~21 days |
+| 1 | 5.4 mWh/day | ~171 days |
+| **4** | **6.8 mWh/day** | **~137 days** |
+| 12 | 10.5 mWh/day | ~89 days |
+| 24 (hourly) | 16.0 mWh/day | ~58 days |
 
-Standby is a flat ~3.8 mWh/day floor; past ~4 updates/day the Wi-Fi wake cycles
-are the whole story. If the target is "a year between charges", the lever is
-cadence, not capacity.
+So roughly **4½ months** at 4 updates/day. Past ~4 updates/day the Wi-Fi wake
+cycles dominate and cadence is the only lever that matters.
 
-**Internal resistance (the one that bites).** Small cells have markedly higher
-`Ri` than large ones — a 300 mAh pouch is typically **200–400 mΩ** including its
-protection PCM, against maybe 150 mΩ for a 500 mAh cell. `Ri` sets the voltage
-sag under a Wi-Fi burst, and that sag stacks on top of the LDO's dropout
-requirement. The cell's open-circuit voltage has to cover both:
+### Before first plug-in
 
-| Cell `Ri` | Load | Sag | `VBAT` needed | Cell OCV needed |
-|---|---|---|---|---|
-| 200 mΩ | TX only, 355 mA | 71 mV | 3.45 V | **3.52 V** |
-| 300 mΩ | TX only, 355 mA | 106 mV | 3.45 V | **3.56 V** |
-| 400 mΩ | TX only, 355 mA | 142 mV | 3.45 V | **3.59 V** |
-| 300 mΩ | TX **+** panel refresh, 500 mA | 150 mV | 3.51 V | **3.66 V** |
-
-A LiPo at 3.66 V open-circuit is only ~25 % discharged, so the *combined* case
-would strand roughly the bottom quarter of the cell — you would still have
-charge, but not enough headroom to transmit with it.
-
-**The firmware architecture is what buys that back.** Fetching data, closing the
-connection, and only then doing the processing and panel refresh keeps Wi-Fi TX
-and the panel's boost converter from ever overlapping. That drops the worst case
-from the 500 mA row to the 355 mA row and moves the floor from 3.66 V to
-~3.56 V — around 10–15 % state of charge instead of 25 %. Serialising those two
-activities is worth more here than any component choice.
-
-Practical consequences when buying a cell and writing firmware:
-
-- **Check the cell's `Ri` spec, don't just buy the cheapest 300 mAh pouch.** The
-  difference between a 200 mΩ and a 400 mΩ cell is ~70 mV of headroom, which is
-  real capacity at the bottom of the curve.
-- Confirm the cell permits ≥ 1.2 C discharge (355 mA on a 300 mAh cell is 1.2 C).
-  Brief bursts at that rate are normal for small pouches, but it is worth
-  checking rather than assuming.
-- **Configure the brownout detector and gate transmits on `VBAT`.** The sense
-  divider on GPIO1 exists for exactly this: read it before opening a connection
-  and skip the update if the cell cannot support the burst, rather than
-  discovering the limit as a BOD reset loop at 10 % charge.
-- Charging at 100 mA (`R5` = 10 kΩ) is 0.33 C — a good match, no change needed.
+- **Verify PH2.0 polarity with a meter.** This is a drone pack, and its housing
+  wiring need not match the Adafruit/SparkFun convention that `J3`'s footprint
+  assumes (pin 1 = `VBAT`, pin 2 = `GND`). `D6` will crowbar a reversed cell and
+  the PCM will clear it, but that is a safety net, not a plan.
+- **Set the firmware cutoff around 3.4 V**, well above the DW01A's ~2.4 V
+  over-discharge threshold. The protection board is the last line of defence
+  against a ruined cell, not the normal operating limit.
+- Charging at 100 mA (`R5` = 10 kΩ) is 0.33 C — gentle, ~4 h to full, and no
+  change from the current BOM.
 
 `D6` costs a little reverse leakage (a few µA at 3.7 V for an SS14). If you are
 chasing the last microamps, substitute a low-`Ir` Schottky such as a PMEG
@@ -651,7 +675,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | C20 | 100 µF (VBAT / LDO-input burst reservoir) | 1206 X5R |
 | J1 | AES200200A00 24-pin 0.5 mm FPC | **FPC-to-0.1" breakout / 0.5 mm ZIF socket** |
 | J2 | USB-C receptacle (2.0, sink), 16-pin | `Connector_USB:USB_C_Receptacle_GCT_USB4085` |
-| J3 | LiPo battery, **300 mAh 3.7 V, protection PCM required**, prefer `Ri` ≤ 300 mΩ (§4) | **JST-PH 2-pin** THT connector |
+| J3 | Turnigy BoltX LiHV 1S 300 mAh 3.8 V 80C + **inline DW01A-class 1S protection PCB (mandatory, §4)** | **JST-PH 2-pin** THT connector |
 | J4 | I²C temp sensor *(optional)* | **THT** 1×4 0.1" header |
 | J5 | UART console | **THT** 1×4 0.1" header |
 | J6 | GPIO expansion | **THT** 2×12 0.1" header |
@@ -674,9 +698,9 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
   which is still comfortable with a fine tip.
 - The e-paper FPC connects through an FPC-to-0.1" breakout / 0.5 mm ZIF socket,
   so no fine-pitch FPC soldering is needed on this board.
-- **Check LiPo polarity with a meter before the first plug-in.** JST-PH wiring is
-  not standardised between cell vendors. `D6` will crowbar a reversed cell rather
-  than let it destroy `U2`/`U3`, but that only works with a protected pack.
+- **Fit the inline 1S protection PCB before connecting the cell at all**, and
+  check PH2.0 polarity with a meter. The pack is an unprotected drone cell; §4
+  explains why both steps are mandatory rather than advisory.
 
 ## 10. Thermal design (read before layout)
 

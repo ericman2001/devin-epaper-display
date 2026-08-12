@@ -476,7 +476,7 @@ MAX_H = max(sd.height for sd in symdefs.values())
 LABEL_ROOM = 45.0     # global-label text length allowance
 PAGE_W = X0 + (COLS - 1) * COL_W + MAX_W / 2 + PIN_LEN + GRID + LABEL_ROOM + X0
 NOTE_Y = Y0 + ROWS_TOTAL * ROW_H
-NOTE_ROOM = 12 * GRID * 1.5      # room for the stacked sheet notes below the grid
+NOTE_ROOM = 16 * GRID * 1.5      # room for the stacked sheet notes below the grid
 PAGE_H = NOTE_Y + max(MAX_H / 2, GRID) + NOTE_ROOM + Y0
 
 out = []
@@ -578,9 +578,13 @@ for idx, inst in enumerate(instances):
 
 for _n, _note in enumerate([
     "J6 IO35-37 and IO47/48 assume non-octal-PSRAM, non-R16V module",
-    "J3 REQUIRES a LiPo cell with an integrated protection PCM. Nothing on this board",
-    "   stops over-discharge, and D6 relies on that PCM to clear a reverse-polarity fault.",
-    "   Verify cell polarity before first plug-in: JST-PH wiring varies between vendors.",
+    "J3 REQUIRES 1S protection on the cell. The target pack (Turnigy BoltX LiHV 300mAh",
+    "   80C) is an unprotected drone cell - fit an inline DW01A-class 1S protection PCB.",
+    "   Nothing on this board stops over-discharge, and D6 shorts a reversed cell on",
+    "   purpose, relying on that PCM to clear the fault. An 80C 300mAh cell is rated for",
+    "   24A: an SS14 across it with nothing to interrupt is worse than no crowbar at all.",
+    "   Keep U2 as the -2 (4.20V) option: DW01A boards cut off overcharge near 4.30V, so",
+    "   do NOT fit the 4.35V -3 part even though the cell is LiHV. Check PH2.0 polarity.",
     "U3 (SOT-23-5, 1=IN 2=GND 3=EN 4=NC 5=OUT) accepts TLV75733PDBVR / AP2112K-3.3 /",
     "   XC6220B331MR unchanged. EN is tied to IN - do not leave it floating.",
     "U3 is the DBV package: RthJA 231 C/W, no thermal pad. Fine for this board's",
