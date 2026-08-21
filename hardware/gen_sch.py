@@ -14,10 +14,29 @@ import os
 
 SCH = "epaper-display.kicad_sch"
 
-def U():
-    return str(uuid.uuid4())
+# ----------------------------------------------------------------------------
+# Deterministic UUIDs.  Every uuid emitted below is a UUIDv5 hash of a stable
+# key string (reference designator + pin, mostly) rather than a random uuid4.
+#
+# This matters as soon as a .kicad_pcb exists: KiCad links each footprint to its
+# schematic symbol by the symbol's UUID, so a fresh random uuid on every run
+# would orphan every footprint on the board each time this script is re-run
+# (recoverable only via "re-link footprints by reference designator").  It also
+# keeps `git diff` empty when nothing actually changed.
+#
+# Every key must be unique -- two call sites sharing a key would emit the same
+# uuid twice and KiCad rejects a schematic with duplicate uuids, so U() raises.
+UUID_NS = uuid.uuid5(uuid.NAMESPACE_DNS, "epaper-display.kicad")
+_uuid_keys = set()
 
-ROOT_UUID = U()
+def U(key):
+    """Stable UUID for `key`.  Raises if `key` has already been used."""
+    if key in _uuid_keys:
+        raise SystemExit(f"duplicate UUID key: {key!r}")
+    _uuid_keys.add(key)
+    return str(uuid.uuid5(UUID_NS, key))
+
+ROOT_UUID = U("sheet:root")
 
 # ----------------------------------------------------------------------------
 # Symbol library entries.  Every symbol is a rectangle with pins auto-laid out
@@ -114,14 +133,27 @@ EPD_PINS = [
     (5,"VSH2","passive"),(6,"TSCL","output"),(7,"TSDA","bidirectional"),(8,"BS1","input"),
     (9,"BUSY","output"),(10,"RES#","input"),(11,"D/C#","input"),(12,"CS#","input"),
     (13,"SCL","input"),(14,"SDA","input"),(15,"VDDIO","power_in"),(16,"VCI","power_in"),
-    (17,"VSS","power_in"),(18,"VDD","passive"),(19,"VPP","power_in"),(20,"VSH1","passive"),
+    # VPP is the panel's OTP *programming* pin.  It is not a supply rail and is
+    # never driven in normal operation (it sits on EPD_VPP with only R23), so it
+    # is passive, not power_in -- as power_in it raised a spurious
+    # power_pin_not_driven ERC error.
+    (17,"VSS","power_in"),(18,"VDD","passive"),(19,"VPP","passive"),(20,"VSH1","passive"),
     (21,"VGH","passive"),(22,"VSL","passive"),(23,"VGL","passive"),(24,"VCOM","passive"),
+    # The Hirose FH12 footprint carries two mechanical hold-down tabs, both pads
+    # named "MP".  They are not display signals, but they must exist as a symbol
+    # pin or they stay floating on the board (no error -- KiCad silently leaves
+    # unmatched footprint pads unconnected).  Tie them to GND: that is what gives
+    # the connector its solder retention against FPC insertion force.
+    ("MP","MP","passive"),
 ]
 mk("EPD_AES200200A00", EPD_PINS)
 
 # USB-C receptacle, USB 2.0 16-pin.  Pin *numbers* are the real A/B pad names so
 # they map 1:1 onto Connector_USB:USB_C_Receptacle_GCT_USB4085 (pads A1 A4 A5 A6
-# A7 A8 A9 A12 / B1 B4 B5 B6 B7 B8 B9 B12 + four shield pads all numbered S1).
+# A7 A8 A9 A12 / B1 B4 B5 B6 B7 B8 B9 B12 + four shield pads all numbered SH).
+# NB: the shield pads are "SH" in the KiCad footprint libs, not the "S1" used by
+# KiCad's own USB-C *symbol* -- using S1 here makes the PCB update fail with
+# "pad S1 not found in Connector_USB:USB_C_Receptacle_GCT_USB4085".
 # The duplicated rows MUST be paralleled in the netlist below or the cable only
 # works in one orientation.
 mk("USB_C_Receptacle_USB2.0", [
@@ -131,7 +163,7 @@ mk("USB_C_Receptacle_USB2.0", [
     ("B1","GND","power_in"),("B4","VBUS","power_in"),("B5","CC2","passive"),
     ("B6","D+","bidirectional"),("B7","D-","bidirectional"),("B8","SBU2","passive"),
     ("B9","VBUS","power_in"),("B12","GND","power_in"),
-    ("S1","SHIELD","passive"),
+    ("SH","SHIELD","passive"),
 ])
 
 # MCP73831 SOT-23-5
@@ -262,6 +294,7 @@ add("J1", "AES200200A00 FPC", "EPD_AES200200A00", {
     11:"EPD_DC", 12:"EPD_CS", 13:"EPD_SCLK", 14:"EPD_MOSI",
     15:"+3V3", 16:"+3V3", 17:"GND", 18:"EPD_VDD", 19:"EPD_VPP",
     20:"EPD_VSH1", 21:"EPD_VGH", 22:"EPD_VSL", 23:"EPD_VGL", 24:"EPD_VCOM",
+    "MP":"GND",
 }, fp="Connector_FFC-FPC:Hirose_FH12-24S-0.5SH_1x24-1MP_P0.50mm_Horizontal")
 
 # --- USB-C receptacle ---
@@ -273,7 +306,7 @@ add("J2", "USB-C 2.0 receptacle", "USB_C_Receptacle_USB2.0", {
     "A8":NC,     "A9":"VBUS", "A12":"GND",
     "B1":"GND",  "B4":"VBUS", "B5":"CC2", "B6":"USB_DP", "B7":"USB_DM",
     "B8":NC,     "B9":"VBUS", "B12":"GND",
-    "S1":"GND",
+    "SH":"GND",
 }, fp="Connector_USB:USB_C_Receptacle_GCT_USB4085")
 add("R1", "5.1k", "R", {1:"CC1", 2:"GND"}, fp=FP_R)
 add("R2", "5.1k", "R", {1:"CC2", 2:"GND"}, fp=FP_R)
@@ -472,8 +505,17 @@ add("J6", "GPIO expansion", "Conn_2x12", {
 }, fp="Connector_PinHeader_2.54mm:PinHeader_2x12_P2.54mm_Vertical")
 
 # --- power flags (ERC: mark externally-sourced nets as driven) ---
+# ERC looks for a power_out pin on every net that feeds a power_in pin.  These
+# nets are all sourced from outside the schematic -- through a passive connector
+# pin, which ERC cannot recognise as a driver -- so each needs a flag or ERC
+# reports a spurious power_pin_not_driven error.
 add("#FLG1", "PWR_FLAG", "PWR_FLAG", {1:"VBUS"}, in_bom=False)
 add("#FLG2", "PWR_FLAG", "PWR_FLAG", {1:"GND"},  in_bom=False)
+# Battery side: the cell arrives on J3, a passive 2-pin connector.  PROT_VDD is
+# the cell positive after R24 (U4's supply, decoupled by C21) and BATT_NEG is the
+# cell negative between J3 pin 2 and Q2's S1 -- both feed DW01A power_in pins.
+add("#FLG3", "PWR_FLAG", "PWR_FLAG", {1:"PROT_VDD"}, in_bom=False)
+add("#FLG4", "PWR_FLAG", "PWR_FLAG", {1:"BATT_NEG"}, in_bom=False)
 
 
 # ----------------------------------------------------------------------------
@@ -572,7 +614,7 @@ def main():
         "bidirectional": "bidirectional",
     }
 
-    def place_label(x, y, net, ang, shape="passive", justify=None):
+    def place_label(x, y, net, ang, key, shape="passive", justify=None):
         # text extends away from the symbol: right-side labels (ang 0) are left
         # justified, left-side labels (ang 180) are right justified
         if justify is None:
@@ -580,14 +622,14 @@ def main():
         label_lines.append(
             f'  (global_label "{net}" (shape {shape}) (at {x:.3f} {y:.3f} {ang}) (fields_autoplaced)\n'
             f'    (effects (font (size 1.27 1.27)) (justify {justify}))\n'
-            f'    (uuid "{U()}"))'
+            f'    (uuid "{U("label:" + key)}"))'
         )
 
-    def place_text(x, y, text):
+    def place_text(x, y, text, key):
         text_lines.append(
             f'  (text "{text}" (exclude_from_sim no) (at {x:.3f} {y:.3f} 0)\n'
             f'    (effects (font (size 1.27 1.27)) (justify left))\n'
-            f'    (uuid "{U()}"))'
+            f'    (uuid "{U("text:" + key)}"))'
         )
 
     for idx, inst in enumerate(instances):
@@ -597,7 +639,7 @@ def main():
         px = X0 + col * COL_W
         py = Y0 + row * ROW_H
         ref = inst["ref"]
-        uu = U()
+        uu = U(f"sym:{ref}")
         bom = 'yes' if inst["in_bom"] else 'no'
         sym_lines.append(f'  (symbol (lib_id "epaper:{inst["lib"]}") (at {px:.3f} {py:.3f} 0) (unit 1)')
         sym_lines.append(f'    (in_bom {bom}) (on_board yes)' + (' (dnp yes)' if inst["dnp"] else ''))
@@ -612,7 +654,7 @@ def main():
         sym_lines.append(f'      (effects (font (size 1.27 1.27)) hide))')
         # pin instance uuids
         for num, name, et in sd.pins:
-            sym_lines.append(f'    (pin "{num}" (uuid "{U()}"))')
+            sym_lines.append(f'    (pin "{num}" (uuid "{U(f"pin:{ref}:{num}")}"))')
         sym_lines.append('    (instances')
         sym_lines.append(f'      (project "epaper-display"')
         sym_lines.append(f'        (path "/{ROOT_UUID}" (reference "{ref}") (unit 1))))')
@@ -640,13 +682,14 @@ def main():
             ey = cy
             if net is None:
                 # no-connect flag at the pin tip
-                nc_lines.append(f'  (no_connect (at {cx:.3f} {cy:.3f}) (uuid "{U()}"))')
+                nc_lines.append(f'  (no_connect (at {cx:.3f} {cy:.3f}) (uuid "{U(f"nc:{ref}:{num}")}"))')
                 continue
             wire_lines.append(
                 f'  (wire (pts (xy {cx:.3f} {cy:.3f}) (xy {ex:.3f} {ey:.3f}))\n'
-                f'    (stroke (width 0) (type default)) (uuid "{U()}"))'
+                f'    (stroke (width 0) (type default)) (uuid "{U(f"wire:{ref}:{num}")}"))'
             )
-            place_label(ex, ey, net, lab_ang, LABEL_SHAPE.get(et, "passive"), lab_justify)
+            place_label(ex, ey, net, lab_ang, f"{ref}:{num}",
+                        LABEL_SHAPE.get(et, "passive"), lab_justify)
 
     for _n, _note in enumerate([
         "J6 IO35-37 and IO47/48 assume non-octal-PSRAM, non-R16V module",
@@ -672,7 +715,7 @@ def main():
         "Buttons SW3-SW8 use external 100k pull-ups (R17-R22) so they hold a defined level",
         "   through deep sleep; firmware may still enable RTC pull-ups harmlessly in parallel.",
     ]):
-        place_text(X0, NOTE_Y + _n * GRID * 1.5, _note)
+        place_text(X0, NOTE_Y + _n * GRID * 1.5, _note, f"note{_n}")
 
     out.extend(sym_lines)
     out.extend(wire_lines)
