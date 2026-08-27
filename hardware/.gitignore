@@ -1,2 +1,13 @@
 __pycache__/
 *.pyc
+
+# KiCad per-user UI state and scratch files -- not part of the design
+*.kicad_prl
+*-backups/
+*.kicad_sch-bak
+*.kicad_pcb-bak
+fp-info-cache
+~*.lck
+
+# VS Code Local History extension
+.history/
