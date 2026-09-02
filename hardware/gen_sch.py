@@ -292,7 +292,9 @@ def add(ref, value, lib, nets, fp="", dnp=False, in_bom=True):
 #     pin inside the same block the buttons need.
 #   * SPI2's IO MUX pins are GPIO2 (FSPIQ), GPIO4 (FSPIHD), GPIO5 (FSPIWP),
 #     GPIO6 (FSPICLK), GPIO7 (FSPID) and GPIO16 (FSPICS0) -- the same block
-#     again, plus UART0's TX pin.
+#     again, plus UART0's TX pin.  Note this is about *pins*, not about the SPI
+#     controller: the C6 has one general-purpose SPI host (GPSPI2), and the
+#     panel gets it.  Only the IO MUX fast path is unavailable.
 #
 # Six buttons plus VBAT_SENSE fill seven of the eight LP pins.  GPIO7 is the one
 # LP pin with no ADC channel (datasheet Table 3-1: IO7 lists no ADC1_CHn), so a
@@ -302,9 +304,16 @@ def add(ref, value, lib, nets, fp="", dnp=False, in_bom=True):
 #
 # The panel and USB then take pins that can do nothing else: GPIO18-GPIO23 for
 # the six panel signals and GPIO12/GPIO13 for USB, which the USB Serial/JTAG PHY
-# fixes in hardware.  Panel SPI therefore runs through the GPIO matrix rather
-# than the SPI2 IO MUX; that costs nothing, because the matrix supports 40 MHz
-# and an SSD1681 panel is clocked at a few MHz.
+# fixes in hardware.  Panel SPI is still hardware SPI2 -- it is routed through
+# the GPIO matrix rather than the SPI2 IO MUX, which costs nothing here and is
+# not a "software SPI" fallback:
+#
+#   * the panel's own ceiling is 20 MHz write / 2.5 MHz read (panel datasheet
+#     Table 7-4), and
+#   * ESP-IDF's spi_master docs state that on this family, at 40 MHz and below,
+#     GPIO-matrix routing "will behave the same compared to routing them via
+#     IOMUX".  The IO MUX only matters above 40 MHz, chiefly for MISO setup
+#     time -- and this panel is written to, never read, on a single data wire.
 #
 # See README 7.  Pin comments below are module pin -> GPIO where they differ.
 add("U1", "ESP32-C6-WROOM-1-N8", "ESP32-C6-WROOM-1", {

@@ -676,6 +676,9 @@ separate scarce resources on the C6 all live in the *same* eight-pin block:
 | `ADC1` (the only ADC — there is no `ADC2`) | **GPIO0–GPIO6** | datasheet Table 3-1 |
 | SPI2 IO MUX (`FSPI*`) | GPIO2/4/5/6/7 + GPIO16 | ESP-IDF `spi_pins.h` |
 
+(That last row is about *pins*, not about the SPI controller. The panel still
+gets a full hardware SPI bus — see below.)
+
 Six buttons plus battery sense claim seven of the eight LP pins. That is what
 sets everything else:
 
@@ -686,8 +689,8 @@ sets everything else:
   `ADC1_CH1` *and* `LP_GPIO1`, so it goes to the expansion header as the only
   pin there that can do analog *or* wake the board.
 - **Panel SPI runs through the GPIO matrix**, not the SPI2 IO MUX, because every
-  IO MUX pin is a button or UART0. This costs nothing: the matrix runs to 40 MHz
-  and an SSD1681 panel is clocked at a few MHz.
+  IO MUX pin is a button or UART0. This costs nothing at this panel's speeds —
+  see *"Does the panel still get real SPI?"* below.
 
 **What this costs, stated plainly:** the expansion header goes from 15 GPIOs to
 4, the dedicated four-wire SPI block on it is gone, and the two independent ADC
@@ -717,6 +720,40 @@ LP-domain, ADC-capable, a strapping pin, nor claimed by the USB PHY — which is
 exactly why the panel gets them: the panel is the one peripheral on this board
 that needs no special pin property at all. Their alternate functions
 (`SDIO_CMD/CLK/DATA0-3`, `FSPICS2–5`) are unused here.
+
+#### Does the panel still get real SPI?
+
+**Yes.** The buttons took the SPI2 *IO MUX pins*; they did not take the SPI
+*controller*. `EPD_SCLK`/`EPD_MOSI`/`EPD_CS` are driven by the C6's
+general-purpose SPI host (`GPSPI2` / `SPI2_HOST`) in hardware, with DMA, exactly
+as on the S3 revision. The only difference is that the three bus signals reach
+GPIO23/22/21 through the GPIO matrix instead of through their dedicated IO MUX
+pads. This is **not** bit-banged or software SPI.
+
+That routing costs nothing here, for two independently sufficient reasons:
+
+| | Figure | Source |
+|---|---|---|
+| Panel ceiling, write mode | **20 MHz** | panel datasheet Table 7-4 (`fSCL`, write) |
+| Panel ceiling, read mode | 2.5 MHz | panel datasheet Table 7-4 (`fSCL`, read) |
+| Where GPIO matrix == IO MUX on this family | **≤ 40 MHz** | ESP-IDF `spi_master` docs |
+
+ESP-IDF's own wording for the non-ESP32 targets is explicit: *"When an SPI Host
+is set to 40 MHz or lower frequencies, routing SPI pins via the GPIO matrix will
+behave the same compared to routing them via IOMUX."* The IO MUX only starts to
+matter above 40 MHz, and mostly for **MISO setup time** — which is doubly moot
+here, because the panel is written to and never read in normal operation, on a
+single `SDA` wire with no MISO net on the board at all.
+
+**The one thing that did change: the C6 has a single general-purpose SPI host.**
+`SOC_SPI_PERIPH_NUM` is 2 on the C6 (SPI1 = flash, SPI2 = general purpose)
+against 3 on the S3 (SPI1 = flash, SPI2 + SPI3 general purpose). The S3 revision
+could therefore have given the panel one controller and the expansion header's
+SPI block a second, independent one. On the C6 a SPI peripheral on `J6` would
+have to **share `SPI2` with the panel** — different chip-select, same bus. In
+practice this is academic, because `J6` no longer has four free pins to hang a
+SPI device off anyway (see below); but if a future revision frees pins up, this
+is the constraint it will run into.
 
 ### Reserved / special pins
 
@@ -831,13 +868,14 @@ note above. Anything plugged in here must not drive it low through reset or the
 board stops being flashable over USB. It is an ordinary GPIO once the chip is
 running.
 
-**There is no SPI block, and there cannot be one.** SPI2's IO MUX pins on the C6
-are `GPIO2/4/5/6/7` plus `GPIO16`, every one of which is a button or UART0 here,
-and there are not four spare matrix-routable pins left to build a bit-banged or
-matrix-routed bus out of either. A SPI peripheral has to share pins 3/4/5/7,
-which works (the matrix runs to 40 MHz, far above any sensor) but costs the I²C
-and interrupt labels. This is the single biggest capability the board gives up in
-moving to the C6.
+**There is no dedicated SPI block on the header, and there cannot be one** — for
+a pin-count reason, not a peripheral one. The board has only four spare GPIOs
+left, and a four-wire SPI bus needs all four plus a chip-select. A SPI peripheral
+can still be wired here by borrowing pins 3/4/5/7 (SCLK/MOSI/MISO/CS), which
+works fine electrically — but it costs the I²C and ADC/interrupt labels, and it
+shares the `SPI2` host with the panel, since the C6 has only one general-purpose
+SPI controller (see §7 above). This is the single biggest capability the board
+gives up in moving to the C6.
 
 **Nothing here depends on which module variant was ordered.** The S3 revision
 carried footnotes about `IO35–IO37` and `IO47/IO48` being usable only on
