@@ -68,6 +68,10 @@ rearrange/route as desired.
 - **Programming/serial:** ESP32-S3 native USB-Serial/JTAG on **GPIO19 (D-)** and
   **GPIO20 (D+)**. No external USB-UART bridge required. UART0 (GPIO43/44) is
   also broken out on a header for an optional console.
+- **Expansion:** `J6`, a 2×10 0.1" header, carries a contiguous SPI block (bus +
+  3V3/GND + a deep-sleep-wake-capable IRQ), an I²C pair with DNP pull-ups, two
+  **ADC1** inputs (the only analog pins usable while Wi-Fi is on) and six spare
+  GPIOs — see §7.
 
 ---
 
@@ -209,11 +213,11 @@ side-castellation solderable with a fine-tip iron.
   the module functional. (For thermal/RF margin in a final product you can add a
   via and touch it with the iron, but it is optional.)
 - Uses the **ESP32-S3-WROOM-1-N8** (quad SPI flash, no PSRAM). GPIO26–32 are
-  internal to the module (SPI flash) and are not broken out. On PSRAM variants
-  (`-N8R8` / `-N16R16V`) GPIO35–37 are consumed by the PSRAM; those variants are
-  not used here, so GPIO35–37 are free and are exposed on the expansion header.
-  GPIO47/48 also assume a non-`R16V` variant because `-N16R16V` uses 1.8 V I/O
-  on those pins.
+  internal to the module (SPI flash) and are not broken out. On **octal**-PSRAM
+  variants (`-N4R8` / `-N8R8` / `-N16R8` / `-N16R16VA`) GPIO35–37 are consumed by
+  the PSRAM; those variants are not used here, so GPIO35–37 are free and are
+  exposed on the expansion header. GPIO47/48 also assume a non-`R16VA` variant,
+  because `-N16R16VA` runs 1.8 V I/O on those two pins.
 
 ### Module support circuitry
 
@@ -673,19 +677,87 @@ floating GPIO3 boots fine today — it breaks the moment anyone burns
 | `VBUS` | USB-C `A4/B4/A9/B9`, MCP73831 VDD, `C1`, ESD `D1`, TVS `D7`, `R6` (STAT LED), `#FLG1` |
 | `VBAT` | MCP73831 VBAT, `U3` IN **and** EN, `J3` pin 1 (B+), `C2`, `C3`, `C20`, `R24`, `R9` (sense) |
 | `BATT_NEG` | `J3` pin 2 (cell B−), `U4` VSS, `Q2` S1, `C21` — **not** board GND |
-| `+3V3` | `U3` OUT, module 3V3, display VCI/VDDIO, `C4/C5/C6/C12/C18`, `R7/R8/R12/R13/R14/R17–R22/R23`, `L1`, header power |
+| `+3V3` | `U3` OUT, module 3V3, display VCI/VDDIO, `C4/C5/C6/C12/C18`, `R7/R8/R12/R13/R14/R17–R22/R23/R26/R27`, `L1`, header power |
 | `GND` | common ground / all decoupling returns / module GND pads / USB-C shield `S1` / `#FLG2` |
 
 `#FLG1`/`#FLG2` are `PWR_FLAG`s (not real parts) marking `VBUS`/`GND` as
 externally driven for ERC.
 
-### Spare GPIO expansion header (`J6`, 2×12)
+### Expansion header (`J6`, 2×10)
 
-Exposes 3V3, GND and spare GPIOs `IO15–IO18, IO21, IO35–IO42, IO47, IO48` for
-future peripherals. `IO2` and `IO10–IO14` are **no longer** on this header —
-they are dedicated to the user buttons `SW3`–`SW8` (below), so the six freed
-header pins are tied to `GND` as extra ground returns (the connector stays a
-2×12).
+Fifteen spare GPIOs, laid out in functional blocks rather than in numeric order,
+on a 2×10 0.1" header (20 positions — one row-pair *shorter* than the 2×12 it
+replaces, which broke the same 15 GPIOs out in pin order and then padded the
+last six positions with `GND` to fill the connector).
+
+| Pin | Signal | GPIO | Also | Pin | Signal | GPIO | Also |
+|----:|--------|------|------|----:|--------|------|------|
+| 1 | `+3V3` | — | ≤ 150 mA, see below | 2 | `GND` | — | |
+| 3 | `EXP_SPI_SCLK` | **IO38** | | 4 | `EXP_SPI_MOSI` | **IO39** | |
+| 5 | `EXP_SPI_MISO` | **IO40** | | 6 | `EXP_SPI_CS` | **IO41** | |
+| 7 | `EXP_IRQ` | **IO11** | RTC (wake) · ADC2_CH0 · FSPID | 8 | `GND` | — | |
+| 9 | `EXP_SDA` | **IO12** | RTC · ADC2_CH1 · FSPICLK | 10 | `EXP_SCL` | **IO13** | RTC · ADC2_CH2 · FSPIQ |
+| 11 | `EXP_ADC_A` | **IO2** | **ADC1_CH1** · TOUCH2 · RTC | 12 | `GND` | — | |
+| 13 | `EXP_ADC_B` | **IO10** | **ADC1_CH9** · TOUCH10 · RTC | 14 | `GND` | — | |
+| 15 | `EXP_IO42` | IO42 | MTMS | 16 | `EXP_IO47` | IO47 | ¹ |
+| 17 | `EXP_IO48` | IO48 | ¹ | 18 | `EXP_IO35` | IO35 | ² |
+| 19 | `EXP_IO36` | IO36 | ² | 20 | `EXP_IO37` | IO37 | ² |
+
+¹ 3.3 V on this board (`-N8`); on a `-N16R16VA` these two run at 1.8 V, because
+that variant's `VDD_SPI` is 1.8 V (module datasheet Table 3-1 note c, Table 1-1
+note 7).
+² **Only free because this board specifies `-N8`.** On any octal-PSRAM variant
+(`-N4R8`, `-N8R8`, `-N16R8`, `-N16R16VA`) the module wires `IO35–IO37` to the
+PSRAM die (module datasheet Table 3-1, note b) — do not substitute an octal-`R`
+module and then use header pins 18/19/20. Quad-PSRAM `R2` parts are fine; their
+PSRAM shares the flash bus on the internal `GPIO26–32`. The three are placed
+last so the caveat lands on one contiguous group at the far end of the header.
+
+**Pins 1–8 are a self-contained SPI block:** 3V3, GND, the four bus signals and
+an interrupt line, closed by a second GND. A SPI sensor breakout wires to one
+contiguous 2×4 corner of the header. Two things about it are deliberate:
+
+- **The IRQ line is an RTC GPIO (`IO11`).** Only `GPIO0–21` can wake the chip
+  from deep sleep through EXT1; `GPIO35–48` cannot. On a board that is asleep
+  99.98 % of the time, an interrupt pin that cannot wake it would be decorative.
+  It is an ordinary GPIO if a peripheral does not need it.
+- **The bus signals run through the GPIO matrix, so ≤ 40 MHz.** That is far
+  above any sensor (a BME280 tops out at 10 MHz), but it is not the chip's
+  maximum. If firmware ever needs a genuine 80 MHz bus — an SD card, a fast TFT
+  — pins **7/9/10 are `IO11`/`IO12`/`IO13` = `FSPID`/`FSPICLK`/`FSPIQ`**, the
+  only trio ESP-IDF will hardware-mux for SPI2 (`SPI2_IOMUX_PIN_NUM_*`). Put
+  MOSI/SCLK/MISO there instead, keep chip-select anywhere (CS is not in the
+  timing-critical path), and give up the IRQ and I²C labels.
+
+**Pins 9/10 are labelled I²C** because most sensors are I²C, not SPI. The label
+is a convention, not a hardware constraint — the S3 routes I²C entirely through
+the GPIO matrix, so any two GPIOs would do. `R26`/`R27` (4.7 kΩ, **DNP**) are
+the bus pull-ups: nearly every breakout board already carries its own pair, and
+two sets in parallel halve the bus impedance. Fit them if the sensor has none,
+or if a long ribbon needs stiffer rising edges. Either way they draw nothing
+while the bus idles high, so they cost no sleep current.
+
+**Pins 11 and 13 are the only two Wi-Fi-safe analog inputs this board can
+offer**, and getting them there is what drove the button re-assignment below.
+The ESP32-S3 has two ADCs; **ADC2 is unusable whenever Wi-Fi is running**
+(the driver owns it and `adc2_get_raw()` returns `ESP_ERR_TIMEOUT`), and
+**ADC1 exists only on GPIO1–GPIO10**. Of those, `GPIO1` is `VBAT_SENSE`,
+`GPIO3` is the JTAG-source strap and `GPIO4–GPIO9` are the panel — so `GPIO2`
+and `GPIO10` are the entire remaining supply of Wi-Fi-safe analog pins, and they
+were being spent on two push buttons, which do not care what pin they sit on.
+Each faces a `GND` pin (12 and 14) so an analog sensor gets a short return.
+Both are also RTC/touch pins, so they can be sampled by the ULP while the main
+cores sleep, or used as capacitive touch pads.
+
+`IO42`, `IO47`, `IO48` and `IO35–IO37` (pins 15–20) are plain digital spares.
+If a third analog input is needed and it is only ever read with the radio off,
+`IO11`/`IO12`/`IO13` on pins 7/9/10 are `ADC2_CH0/1/2`.
+
+**Power:** `+3V3` on pin 1 comes straight off `U3`. The regulator is a 1 A part,
+but in SOT-23-5 it is not a continuous half-amp supply — see §2 and §10; keep
+sustained header draw to ~150 mA. There is no `VBAT` pin on the header on
+purpose: the cell is a bare 80C pack behind a low-side protection FET, and
+handing an unfused 24 A source to a 0.1" jumper is not a favour.
 
 ### User buttons (`SW3`–`SW8`)
 
@@ -695,12 +767,21 @@ with a **100 kΩ external pull-up to +3V3**. All six are **RTC-capable GPIOs
 
 | Ref | Function | Net | GPIO | Pull-up |
 |-----|----------|-----|------|---------|
-| SW3 | up | `BTN_UP` | **GPIO2** | `R17` 100k |
-| SW4 | down | `BTN_DOWN` | **GPIO10** | `R18` 100k |
-| SW5 | left | `BTN_LEFT` | **GPIO11** | `R19` 100k |
-| SW6 | right | `BTN_RIGHT` | **GPIO12** | `R20` 100k |
-| SW7 | select | `BTN_SELECT` | **GPIO13** | `R21` 100k |
-| SW8 | cancel | `BTN_CANCEL` | **GPIO14** | `R22` 100k |
+| SW3 | up | `BTN_UP` | **GPIO14** | `R17` 100k |
+| SW4 | down | `BTN_DOWN` | **GPIO15** | `R18` 100k |
+| SW5 | left | `BTN_LEFT` | **GPIO16** | `R19` 100k |
+| SW6 | right | `BTN_RIGHT` | **GPIO17** | `R20` 100k |
+| SW7 | select | `BTN_SELECT` | **GPIO18** | `R21` 100k |
+| SW8 | cancel | `BTN_CANCEL` | **GPIO21** | `R22` 100k |
+
+**These moved off `GPIO2` and `GPIO10–GPIO13`** when the expansion header was
+reorganised, and the reasoning is entirely about what those pins are worth to
+something *else*: `GPIO2`/`GPIO10` are the board's last two ADC1 (Wi-Fi-safe
+analog) pins and `GPIO11–13` are the FSPI IO MUX trio, while a push button works
+identically on any pin that can wake the chip. The replacements — `GPIO14–18`
+and `GPIO21` — are all still RTC GPIOs, so nothing about EXT1 wake changes.
+`GPIO15`/`GPIO16` carry `XTAL_32K_P`/`XTAL_32K_N` as an alternate function; the
+WROOM-1 has no 32 kHz crystal fitted, so they are ordinary GPIOs here.
 
 ### Why external pull-ups, when the S3 has internal ones
 
@@ -718,10 +799,11 @@ misconfigured. **100 kΩ, not 10 kΩ**: pressing a button costs 33 µA rather th
 overcome. Firmware may still enable the internal pull-ups in parallel — it is
 harmless, and costs nothing while the button is open.
 
-Note the net rename: these are now `BTN_*` rather than `EXP_IO*`. The old names
-were left over from when these pins were on the expansion header, and a net
-called `EXP_IO13` that is really the select button is exactly the sort of thing
-that produces a layout or firmware mix-up.
+Note the net naming: these are `BTN_*`, never `EXP_IO*`. A net called `EXP_IO13`
+that is really the select button is exactly the sort of thing that produces a
+layout or firmware mix-up — and on the header side the same rule now runs the
+other way, where a pin with a job (`EXP_SPI_MOSI`, `EXP_ADC_A`) is named for the
+job and only the genuinely uncommitted spares keep an `EXP_IOnn` name.
 
 `SW1` (EN/RESET) and `SW2` (BOOT) use the same FSJM 6 × 6 mm through-hole part
 as `SW3`–`SW8` — they are no longer the `B3U-1000P` SMD switch.
@@ -763,6 +845,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | R16 | 100 kΩ (EPD reset pull-down) | 0805 |
 | R17–R22 | 100 kΩ (SW3–SW8 button pull-ups) | 0805 |
 | R23 | 0 Ω (display VPP link) | 0805 |
+| R26,R27 | 4.7 kΩ (`J6` I²C pull-ups, **DNP**) | 0805 |
 | C1,C2 | 4.7 µF (charger in/out) | 0805 X7R |
 | C3,C4 | 4.7 µF (LDO in/out) | 0805 X7R |
 | C18 | 47 µF (+3V3 output bulk) | 1206 X5R |
@@ -780,7 +863,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | J3 | Turnigy BoltX LiHV 1S 300 mAh 3.8 V 80C (raw cell — protection is on-board, §4) | **JST-PH 2-pin** THT connector |
 | J4 | I²C temp sensor *(optional)* | **THT** 1×4 0.1" header |
 | J5 | UART console | **THT** 1×4 0.1" header |
-| J6 | GPIO expansion | **THT** 2×12 0.1" header |
+| J6 | GPIO expansion (SPI / I²C / ADC blocks, §7) | **THT** 2×10 0.1" header |
 | SW1–SW8 | Tactile push button, FSJM series 6 × 6 mm (EN/RESET, BOOT, D-pad, SELECT, CANCEL) | **THT** 4-pin 6 × 6 mm (Omron/Alps 6.5 × 4.5 mm pitch), `Button_Switch_THT:SW_PUSH_6mm` |
 
 ---
@@ -912,6 +995,11 @@ that is `TJ` ≈ 87 °C; with the large copper area the datasheet mentions
 - **There is no reverse-polarity protection** — the old `D6` crowbar was removed
   because it would have been a 1 A diode standing in front of a 24 A cell with
   nothing to interrupt the fault (§4). Check cell polarity with a meter.
+- **`J6` is now a 2×10 expansion header organised in functional blocks** (SPI +
+  IRQ, I²C, two ADC1 inputs, six spare GPIOs — §7) rather than a 2×12 breaking
+  out the same GPIOs in numeric order. Getting Wi-Fi-safe analog onto it moved
+  the six user buttons from `GPIO2`/`GPIO10–14` to `GPIO14–18`/`GPIO21`; if you
+  have firmware from before this change, its button pin map is stale.
 - Component placement in the schematic is auto-generated and rough; connectivity
   is by global label.
 - **ERC has not been re-run since these changes** — `kicad-cli` was not available
