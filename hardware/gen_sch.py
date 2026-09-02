@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generator for the ESP32-S3-WROOM-1 e-paper display KiCad 8 schematic.
+"""Generator for the ESP32-C6-WROOM-1 e-paper display KiCad 8 schematic.
 
 Connectivity is expressed entirely with *global labels* (which merge by name
 across the whole sheet), so the exported netlist is correct regardless of the
@@ -108,24 +108,26 @@ def mk(libname, pins):
     symdefs[libname] = SymDef(libname, pins)
     return libname
 
-# ESP32-S3-WROOM-1 module (41 pins)
+# ESP32-C6-WROOM-1 module (29 pins).  Pin numbers and names are Table 3-1 of
+# components/esp32-c6-wroom-1_wroom-1u_datasheet_en.pdf (v1.4, p.11), which is
+# a 14 + 14 castellation layout plus the bottom thermal pad on pin 29.
+#
+# Note pin 22 is a real NC pin on this module (GPIO14 is not bonded out of the
+# package on non-SiP-flash variants), and that RXD0/TXD0 on pins 24/25 are
+# GPIO17/GPIO16 -- the names are the UART0 IO MUX function, not the GPIO number.
 MODULE_PINS = [
     (1,"GND","power_in"),(2,"3V3","power_in"),(3,"EN","input"),
     (4,"IO4","bidirectional"),(5,"IO5","bidirectional"),(6,"IO6","bidirectional"),
-    (7,"IO7","bidirectional"),(8,"IO15","bidirectional"),(9,"IO16","bidirectional"),
-    (10,"IO17","bidirectional"),(11,"IO18","bidirectional"),(12,"IO8","bidirectional"),
-    (13,"IO19","bidirectional"),(14,"IO20","bidirectional"),(15,"IO3","bidirectional"),
-    (16,"IO46","bidirectional"),(17,"IO9","bidirectional"),(18,"IO10","bidirectional"),
-    (19,"IO11","bidirectional"),(20,"IO12","bidirectional"),(21,"IO13","bidirectional"),
-    (22,"IO14","bidirectional"),(23,"IO21","bidirectional"),(24,"IO47","bidirectional"),
-    (25,"IO48","bidirectional"),(26,"IO45","bidirectional"),(27,"IO0","bidirectional"),
-    (28,"IO35","bidirectional"),(29,"IO36","bidirectional"),(30,"IO37","bidirectional"),
-    (31,"IO38","bidirectional"),(32,"IO39","bidirectional"),(33,"IO40","bidirectional"),
-    (34,"IO41","bidirectional"),(35,"IO42","bidirectional"),(36,"RXD0","bidirectional"),
-    (37,"TXD0","bidirectional"),(38,"IO2","bidirectional"),(39,"IO1","bidirectional"),
-    (40,"GND","power_in"),(41,"EPAD","power_in"),
+    (7,"IO7","bidirectional"),(8,"IO0","bidirectional"),(9,"IO1","bidirectional"),
+    (10,"IO8","bidirectional"),(11,"IO10","bidirectional"),(12,"IO11","bidirectional"),
+    (13,"IO12","bidirectional"),(14,"IO13","bidirectional"),(15,"IO9","bidirectional"),
+    (16,"IO18","bidirectional"),(17,"IO19","bidirectional"),(18,"IO20","bidirectional"),
+    (19,"IO21","bidirectional"),(20,"IO22","bidirectional"),(21,"IO23","bidirectional"),
+    (22,"NC","no_connect"),(23,"IO15","bidirectional"),(24,"RXD0","bidirectional"),
+    (25,"TXD0","bidirectional"),(26,"IO3","bidirectional"),(27,"IO2","bidirectional"),
+    (28,"GND","power_in"),(29,"EPAD","power_in"),
 ]
-mk("ESP32-S3-WROOM-1", MODULE_PINS)
+mk("ESP32-C6-WROOM-1", MODULE_PINS)
 
 # E-paper 24-pin FPC breakout
 EPD_PINS = [
@@ -241,7 +243,7 @@ mk("USBLC6_ESD", [
 
 # generic headers
 mk("Conn_1x04", [ (i+1, str(i+1), "passive") for i in range(4) ])
-mk("Conn_2x10", [ (i+1, str(i+1), "passive") for i in range(20) ])
+mk("Conn_2x04", [ (i+1, str(i+1), "passive") for i in range(8) ])
 
 # power flag (marks a net as driven, for ERC)
 mk("PWR_FLAG", [ (1, "pwr", "power_out") ])
@@ -273,44 +275,59 @@ instances = []
 def add(ref, value, lib, nets, fp="", dnp=False, in_bom=True):
     instances.append(dict(ref=ref, value=value, lib=lib, nets=nets, fp=fp, dnp=dnp, in_bom=in_bom))
 
-# --- ESP32-S3-WROOM-1 ---
-# GPIO allocation.  The six user buttons sit on GPIO14-18 + GPIO21 rather than
-# on GPIO2/GPIO10-13, and that is a deliberate trade made for the expansion
-# header (J6), not an arbitrary numbering:
+# --- ESP32-C6-WROOM-1 ---
+# GPIO allocation.  The C6 brings out 23 usable GPIOs where the S3 module gave
+# 36, and -- worse for this board -- three separate scarce resources all live in
+# the same GPIO0-GPIO7 block, so the allocation is far more forced than the S3's
+# was.  Nothing here is arbitrary; every pin below is the only one left that can
+# do its job:
 #
-#   * ADC1 is the only ADC that works while Wi-Fi is running (ADC2 is owned by
-#     the Wi-Fi driver), and ADC1 exists only on GPIO1-10.  GPIO1 is VBAT_SENSE,
-#     GPIO3 is the JTAG-source strap, GPIO4-9 are the panel -- so GPIO2 and
-#     GPIO10 are the *only* two ADC1 pins this board can ever hand to a sensor.
-#     A button is indifferent to which pin it sits on; an analog input is not.
-#   * GPIO11/12/13 are FSPID / FSPICLK / FSPIQ in the IO MUX (S3 datasheet
-#     Table 2-4), i.e. the pins ESP-IDF recognises for a hardware-muxed 80 MHz
-#     SPI2 bus.  Keeping them on the header leaves that option open.
-#   * Everything the buttons moved *to* (GPIO14-18, GPIO21) is still an RTC
-#     GPIO, so all six remain EXT1 deep-sleep wake sources -- the one property
-#     the buttons genuinely need.
+#   * Deep-sleep wake is GPIO0-GPIO7 and nothing else.  The C6 has eight LP
+#     (RTC) IOs, SOC_RTCIO_PIN_COUNT = 8, and EXT1 can only be armed on those.
+#     A board that is asleep 99.98 % of the time needs all six buttons to wake
+#     it, so six of those eight pins are spoken for before anything else.
+#   * ADC1 is GPIO0-GPIO6 (ADC1_CH0..CH6).  There is no ADC2 on the C6 at all,
+#     which is a real *improvement* -- the S3's "ADC2 is unusable while Wi-Fi is
+#     on" trap simply does not exist here -- but it puts every analog-capable
+#     pin inside the same block the buttons need.
+#   * SPI2's IO MUX pins are GPIO2 (FSPIQ), GPIO4 (FSPIHD), GPIO5 (FSPIWP),
+#     GPIO6 (FSPICLK), GPIO7 (FSPID) and GPIO16 (FSPICS0) -- the same block
+#     again, plus UART0's TX pin.
+#
+# Six buttons plus VBAT_SENSE fill seven of the eight LP pins.  GPIO7 is the one
+# LP pin with no ADC channel (datasheet Table 3-1: IO7 lists no ADC1_CHn), so a
+# button takes it and the leftover LP pin is GPIO1 = ADC1_CH1.  That single pin
+# goes to the expansion header, where it is both the only analog input and the
+# only interrupt line that can wake the board.
+#
+# The panel and USB then take pins that can do nothing else: GPIO18-GPIO23 for
+# the six panel signals and GPIO12/GPIO13 for USB, which the USB Serial/JTAG PHY
+# fixes in hardware.  Panel SPI therefore runs through the GPIO matrix rather
+# than the SPI2 IO MUX; that costs nothing, because the matrix supports 40 MHz
+# and an SSD1681 panel is clocked at a few MHz.
 #
 # See README 7.  Pin comments below are module pin -> GPIO where they differ.
-add("U1", "ESP32-S3-WROOM-1-N8", "ESP32-S3-WROOM-1", {
+add("U1", "ESP32-C6-WROOM-1-N8", "ESP32-C6-WROOM-1", {
     1:"GND", 2:"+3V3", 3:"EN",
-    4:"EPD_SCLK", 5:"EPD_MOSI", 6:"EPD_CS", 7:"EPD_DC",
-    # IO15 / IO16 / IO17 / IO18 -- four of the six buttons
-    8:"BTN_DOWN", 9:"BTN_LEFT", 10:"BTN_RIGHT", 11:"BTN_SELECT",
-    12:"EPD_RST", 13:"USB_DM_MCU", 14:"USB_DP_MCU",
-    15:"STRAP_IO3", 16:NC, 17:"EPD_BUSY",
-    18:"EXP_ADC_B",                 # IO10  ADC1_CH9 / TOUCH10 / RTC
-    19:"EXP_IRQ",                   # IO11  RTC (EXT1 wake) / ADC2_CH0 / FSPID
-    20:"EXP_SDA", 21:"EXP_SCL",     # IO12 / IO13  RTC, FSPICLK / FSPIQ
-    22:"BTN_UP",                    # IO14
-    23:"BTN_CANCEL",                # IO21
-    24:"EXP_IO47", 25:"EXP_IO48", 26:NC, 27:"BOOT",
-    28:"EXP_IO35", 29:"EXP_IO36", 30:"EXP_IO37",
-    31:"EXP_SPI_SCLK", 32:"EXP_SPI_MOSI",   # IO38 / IO39
-    33:"EXP_SPI_MISO", 34:"EXP_SPI_CS",     # IO40 / IO41
-    35:"EXP_IO42", 36:"UART_RXD0", 37:"UART_TXD0",
-    38:"EXP_ADC_A",                 # IO2   ADC1_CH1 / TOUCH2 / RTC
-    39:"VBAT_SENSE", 40:"GND", 41:"GND",
-}, fp="RF_Module:ESP32-S3-WROOM-1")
+    # IO4-IO7 = MTMS / MTDI / MTCK / MTDO, i.e. the external JTAG pads.  They
+    # are buttons here; debug goes over USB Serial/JTAG instead (see R15).
+    4:"BTN_UP", 5:"BTN_DOWN", 6:"BTN_LEFT", 7:"BTN_RIGHT",
+    8:"VBAT_SENSE",                 # IO0   ADC1_CH0 / LP_GPIO0
+    9:"EXP_ADC_IRQ",                # IO1   ADC1_CH1 / LP_GPIO1 (EXT1 wake)
+    10:"EXP_IO8",                   # IO8   boot-mode strap -- R28 pull-up
+    11:"EXP_SDA", 12:"EXP_SCL",     # IO10 / IO11
+    13:"USB_DM_MCU", 14:"USB_DP_MCU",   # IO12 / IO13, fixed by the USB PHY
+    15:"BOOT",                      # IO9   download-boot strap
+    16:"EPD_BUSY", 17:"EPD_RST",    # IO18 / IO19
+    18:"EPD_DC", 19:"EPD_CS",       # IO20 / IO21
+    20:"EPD_MOSI", 21:"EPD_SCLK",   # IO22 / IO23
+    22:NC,                          # module NC pin (GPIO14 is not bonded out)
+    23:"STRAP_IO15",                # IO15  JTAG-source strap -- R15 pull-up
+    24:"UART_RXD0", 25:"UART_TXD0", # IO17 / IO16
+    26:"BTN_SELECT",                # IO3   ADC1_CH3 / LP_GPIO3
+    27:"BTN_CANCEL",                # IO2   ADC1_CH2 / LP_GPIO2
+    28:"GND", 29:"GND",
+}, fp="Espressif:ESP32-C6-WROOM-1")
 
 # --- E-paper FPC breakout ---
 add("J1", "AES200200A00 FPC", "EPD_AES200200A00", {
@@ -335,7 +352,7 @@ add("J2", "USB-C 2.0 receptacle", "USB_C_Receptacle_USB2.0", {
 }, fp="Connector_USB:USB_C_Receptacle_GCT_USB4085")
 add("R1", "5.1k", "R", {1:"CC1", 2:"GND"}, fp=FP_R)
 add("R2", "5.1k", "R", {1:"CC2", 2:"GND"}, fp=FP_R)
-# 0 ohm, not 22 ohm: the ESP32-S3 USB PHY already contains its series
+# 0 ohm, not 22 ohm: the ESP32-C6 USB PHY already contains its series
 # termination, so an extra 22 ohm per leg would add 44 ohm differential to a
 # 90 ohm pair and squash the full-speed eye.  Keep the pads as tuning stubs.
 add("R3", "0", "R", {1:"USB_DP", 2:"USB_DP_MCU"}, fp=FP_R)
@@ -442,13 +459,23 @@ add("R8", "10k", "R", {1:"+3V3", 2:"BOOT"}, fp=FP_R)
 add("SW2", "BOOT", "SW_PUSH", {1:"BOOT", 2:"GND"}, fp=FP_SW_6MM)
 
 # --- User buttons: D-pad + select + cancel ---
-# GPIO14 (up), 15 (down), 16 (left), 17 (right), 18 (select), 21 (cancel) --
-# see the allocation note on U1 for why they are not on GPIO2/10-13 any more.
-# Active-low to GND.  All six are RTC GPIOs (GPIO0-21), so any of them can serve
-# as a deep-sleep wake source -- which is exactly why they get *external*
-# pull-ups: the digital-domain internal pull-ups drop out in deep sleep, and an
-# EXT1 wake source that floats produces phantom wakes that quietly eat the
-# battery.  100k (not 10k) keeps the held-button current to 33 uA.
+# GPIO4 (up), 5 (down), 6 (left), 7 (right), 3 (select), 2 (cancel).  Active-low
+# to GND.  These six occupy GPIO2-GPIO7, which is six of the C6's eight LP
+# (RTC) IOs -- the complete set of pins EXT1 can wake the chip from.  See the
+# allocation note on U1: on this part that is not a preference, it is the only
+# arrangement that lets every button wake the board.
+#
+# They get *external* pull-ups because the digital-domain internal pull-ups drop
+# out in deep sleep, and an EXT1 wake source that floats produces phantom wakes
+# that quietly eat the battery.  100k (not 10k) keeps the held-button current to
+# 33 uA.
+#
+# Side effect worth knowing about: GPIO4 (MTMS) and GPIO5 (MTDI) are also
+# strapping pins, for the SDIO slave sampling/driving clock edge (module
+# datasheet Table 4-4).  R17/R18 latch both to 1 at reset -- unless that button
+# happens to be held down -- which selects "rising edge sampling, rising edge
+# output".  This board never uses the SDIO slave interface, so the setting is
+# inert either way; it is recorded here so nobody rediscovers it as a mystery.
 BUTTONS = [("SW3","BTN_UP"), ("SW4","BTN_DOWN"), ("SW5","BTN_LEFT"),
            ("SW6","BTN_RIGHT"), ("SW7","BTN_SELECT"), ("SW8","BTN_CANCEL")]
 for _i, (_sw, _net) in enumerate(BUTTONS):
@@ -457,16 +484,27 @@ for _i, (_sw, _net) in enumerate(BUTTONS):
 # 100k rather than 10k: these only ever fight a CMOS input's leakage, and 10k
 # would burn 330 uA whenever firmware drives the pin against the resistor.
 add("R14", "100k", "R", {1:"+3V3", 2:"EPD_CS"}, fp=FP_R)
-# Populated, NOT DNP.  Module datasheet 4.4: GPIO3 "does not have any internal
+# Populated, NOT DNP.  Module datasheet 4.4: GPIO15 "does not have any internal
 # pull resistors and the strapping value must be controlled by the external
 # circuit that cannot be in a high impedance state."
-add("R15", "10k", "R", {1:"STRAP_IO3", 2:"GND"}, fp=FP_R)
+#
+# Pull-UP, where the S3 revision of this board pulled its equivalent strap
+# (GPIO3) down.  The direction is not cosmetic: datasheet Table 4-7 says that
+# once EFUSE_JTAG_SEL_ENABLE is burnt, GPIO15 = 1 keeps JTAG on the USB
+# Serial/JTAG controller and GPIO15 = 0 moves it to the MTDI/MTCK/MTMS/MTDO
+# pads.  Those pads are GPIO4-GPIO7 on the C6, which this board wires to four
+# of the six buttons, so pad-JTAG is not reachable here -- pulling the strap low
+# would trade a working debug port for an unusable one.  With default (unburnt)
+# eFuses GPIO15 is ignored and USB Serial/JTAG is used regardless; R15 is what
+# keeps that true afterwards, and what stops the pin floating meanwhile.
+add("R15", "10k", "R", {1:"+3V3", 2:"STRAP_IO15"}, fp=FP_R)
 add("R16", "100k", "R", {1:"EPD_RST", 2:"GND"}, fp=FP_R)
 
-# --- Battery sense divider (into ADC1_CH0 / GPIO1) ---
+# --- Battery sense divider (into ADC1_CH0 / GPIO0) ---
 # 1M/1M, not 100k/100k: the divider is across the cell permanently, and at 100k
-# it drew 21 uA -- roughly triple the ESP32-S3's own 7-8 uA deep-sleep current
-# on a device whose entire premise is deep sleep.  1M brings that to 2.1 uA.
+# it drew 21 uA -- three times the ESP32-C6's own 7 uA deep-sleep current
+# (module datasheet Table 6-8) on a device whose entire premise is deep sleep.
+# 1M brings that to 2.1 uA.
 # C8 is the ADC's charge reservoir, which is what makes the now-500k source
 # impedance acceptable to the SAR; allow ~250 ms of settling after wake and
 # average several samples.
@@ -520,65 +558,56 @@ add("J4", "I2C temp (optional)", "Conn_1x04",
 add("J5", "UART", "Conn_1x04",
     {1:"+3V3", 2:"GND", 3:"UART_TXD0", 4:"UART_RXD0"},
     fp="Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical")
-# J6 -- expansion header, 2x10 (0.1"), organised in functional blocks.
+# J6 -- expansion header, 2x4 (0.1").
 #
-# This replaces an unstructured 2x12 that broke out 15 spare GPIOs in numeric
-# order and then padded the last six positions with GND to fill the connector.
-# Same 15 GPIOs, one row-pair shorter, and every position now carries something:
+# This was a 2x10 breaking out fifteen spare GPIOs on the ESP32-S3.  The C6 does
+# not have fifteen spare GPIOs; after the panel, the buttons, USB, UART0 and the
+# two strapping pins there are exactly four left, and shrinking the connector is
+# the honest way to say so.  A 2x10 with twelve grounds on it would only look
+# like it kept the capability.
 #
 #     1  +3V3            2  GND
-#     3  SPI SCLK  IO38  4  SPI MOSI IO39
-#     5  SPI MISO  IO40  6  SPI CS   IO41
-#     7  IRQ/WAKE  IO11  8  GND
-#     9  I2C SDA   IO12 10  I2C SCL  IO13
-#    11  ADC A     IO2  12  GND
-#    13  ADC B     IO10 14  GND
-#    15  GPIO      IO42 16  GPIO     IO47
-#    17  GPIO      IO48 18  GPIO     IO35
-#    19  GPIO      IO36 20  GPIO     IO37
+#     3  I2C SDA   IO10  4  I2C SCL  IO11
+#     5  ADC/IRQ   IO1   6  GND
+#     7  GPIO      IO8   8  GND
 #
-# Why it is laid out this way:
+# What survived the move, and why these four pins:
 #
-#   * Pins 1-8 are a self-contained SPI block: 3V3, GND, the four bus signals
-#     and an interrupt line, with a second GND closing the group.  A SPI sensor
-#     breakout wires to one contiguous 2x4 corner of the connector.
-#   * The IRQ line is GPIO11 because it is an RTC GPIO.  Only GPIO0-21 can wake
-#     the chip from deep sleep via EXT1, and GPIO35-48 cannot -- an interrupt
-#     pin that cannot wake a board which is asleep 99.98 % of the time would be
-#     decorative.  It is a plain GPIO if unused.
-#   * Pins 9/10 are labelled I2C because most sensors are I2C, but the S3 routes
-#     I2C entirely through the GPIO matrix, so this is a naming convention, not
-#     a hardware constraint.  R26/R27 are the bus pull-ups (DNP -- most sensor
-#     breakouts carry their own).  GPIO12/13 are also RTC + ADC2 pins.
-#   * Pins 7/9/10 are GPIO11/12/13 = FSPID/FSPICLK/FSPIQ in the IO MUX, the only
-#     trio ESP-IDF will hardware-mux for SPI2.  Firmware that needs a genuine
-#     80 MHz bus (an SD card, a fast TFT) can put SPI there instead and give up
-#     the IRQ/I2C labels; the header's own SPI block runs through the GPIO
-#     matrix and so tops out at 40 MHz, which is far above any sensor.
-#   * Pins 11/13 are the board's only two Wi-Fi-safe analog inputs (ADC1_CH1 and
-#     ADC1_CH9); each faces a GND pin so a sensor gets a short return.  Both are
-#     also RTC/touch pins, so they can be read by the ULP or used as touch pads.
-#   * Pins 18/19/20 (IO35/36/37) are last on purpose: they are free only on
-#     modules *without* octal PSRAM.  On an -N4R8 / -N8R8 / -N16R8 / -N16R16VA
-#     the module wires them to the PSRAM die (module datasheet Table 3-1 note b)
-#     and driving them from the header would fight it.  This board specifies
-#     -N8, which is why they are usable at all -- do not substitute an
-#     octal-PSRAM module and then use these three pins.  IO47/IO48 (pins 16/17)
-#     carry a smaller version of the same caveat: on an -N16R16VA they are
-#     1.8 V I/O, not 3.3 V (note c).
-add("J6", "GPIO expansion", "Conn_2x10", {
-    1:"+3V3",         2:"GND",
-    3:"EXP_SPI_SCLK", 4:"EXP_SPI_MOSI",
-    5:"EXP_SPI_MISO", 6:"EXP_SPI_CS",
-    7:"EXP_IRQ",      8:"GND",
-    9:"EXP_SDA",     10:"EXP_SCL",
-    11:"EXP_ADC_A",  12:"GND",
-    13:"EXP_ADC_B",  14:"GND",
-    15:"EXP_IO42",   16:"EXP_IO47",
-    17:"EXP_IO48",   18:"EXP_IO35",
-    19:"EXP_IO36",   20:"EXP_IO37",
-}, fp="Connector_PinHeader_2.54mm:PinHeader_2x10_P2.54mm_Vertical")
-# I2C bus pull-ups for J6 pins 9/10.  DNP by default: nearly every I2C breakout
+#   * Pin 5 (IO1) is the one pin that had to be defended.  It is ADC1_CH1 *and*
+#     LP_GPIO1, so it is simultaneously the board's only spare analog input and
+#     the only header pin that can wake the chip from deep sleep through EXT1.
+#     On the S3 those were two separate jobs on three separate pins (EXP_ADC_A,
+#     EXP_ADC_B, EXP_IRQ); here one pin does all of it, which means a sensor
+#     that needs an interrupt and a sensor that needs an analog input are now
+#     mutually exclusive.  That is a real loss and it is the price of the part.
+#     It faces a GND pin so an analog source still gets a short return.
+#   * Pins 3/4 (IO10/IO11) are the two remaining general-purpose digital pins
+#     with no strapping or LP-domain baggage at all, which makes them the right
+#     pair to label I2C.  As on the S3 the label is a convention -- the C6
+#     routes I2C through the GPIO matrix -- and R26/R27 are the bus pull-ups,
+#     DNP because most sensor breakouts carry their own.
+#   * Pin 7 (IO8) is a strapping pin and is the weakest position on the header:
+#     it must be HIGH at reset for joint download boot (datasheet Table 4-3;
+#     GPIO8 = 0 with GPIO9 = 0 is an invalid combination).  R28 holds it there.
+#     Anything plugged in here must not drive it low through reset, or the board
+#     stops being flashable over USB.  It is otherwise an ordinary GPIO.
+#
+# What is gone, so it is not looked for: the four-wire SPI block.  SPI2's IO MUX
+# pins on the C6 are GPIO2/4/5/6/7 + GPIO16, all of which are buttons or UART0
+# here, and there are not four spare matrix-routable pins left to build a
+# software SPI block out of either.  A SPI peripheral has to share pins 3/4/5/7.
+add("J6", "GPIO expansion", "Conn_2x04", {
+    1:"+3V3",        2:"GND",
+    3:"EXP_SDA",     4:"EXP_SCL",
+    5:"EXP_ADC_IRQ", 6:"GND",
+    7:"EXP_IO8",     8:"GND",
+}, fp="Connector_PinHeader_2.54mm:PinHeader_2x04_P2.54mm_Vertical")
+# GPIO8 boot-mode strap pull-up.  Required, not optional, and not DNP: GPIO8 is
+# floating by default (datasheet Table 4-1) and must read 1 at reset for joint
+# download boot to be entered reliably.  10k, not 100k, because this one has to
+# win against whatever a user hangs off J6 pin 7, not just against pin leakage.
+add("R28", "10k", "R", {1:"+3V3", 2:"EXP_IO8"}, fp=FP_R)
+# I2C bus pull-ups for J6 pins 3/4.  DNP by default: nearly every I2C breakout
 # already fits its own pair, and two sets in parallel halve the bus impedance.
 # Fit these (4.7k) only when the sensor board has none, or when a long ribbon
 # needs stiffer edges.  They idle at zero current while the bus sits high, so
@@ -774,12 +803,19 @@ def main():
                         LABEL_SHAPE.get(et, "passive"), lab_justify)
 
     for _n, _note in enumerate([
-        "J6 (2x10 expansion) is laid out in blocks, NOT in GPIO order:",
-        "   1-8 = 3V3/GND + SPI SCLK,MOSI,MISO,CS (IO38-41) + IRQ (IO11) + GND;",
-        "   9/10 = I2C SDA/SCL (IO12/13, R26/R27 pull-ups DNP); 11/13 = ADC1 in",
-        "   (IO2/IO10, the only ADC pins usable with Wi-Fi on); 15-20 = spares.",
-        "   IO35-37 (pins 18-20) and IO47/48 (16/17) assume a non-octal-PSRAM,",
-        "   non-R16VA module. Buttons moved to IO14-18/IO21 to free IO2/IO10-13.",
+        "J6 (2x4 expansion) is 1=3V3 2=GND, 3/4=I2C SDA/SCL (IO10/IO11, R26/R27",
+        "   pull-ups DNP), 5=ADC/IRQ (IO1 = ADC1_CH1 AND LP_GPIO1 - the only spare",
+        "   pin that is both analog and EXT1-wake capable), 6/8=GND, 7=IO8 spare.",
+        "   There is no SPI block: SPI2's IO MUX pins on the C6 (IO2/4/5/6/7/16)",
+        "   are all buttons or UART0 here. Four spare GPIOs is all the part has.",
+        "J6 pin 7 is IO8, a STRAPPING pin held high by R28. Do not let anything",
+        "   plugged into J6 drive it low through reset (IO8=0 with IO9=0 is an",
+        "   invalid boot mode) or the board stops being flashable over USB.",
+        "R15 pulls IO15 HIGH (the S3 revision pulled its strap low). IO15 selects",
+        "   the JTAG source once EFUSE_JTAG_SEL_ENABLE is burnt: high = USB",
+        "   Serial/JTAG, low = the MTMS/MTDI/MTCK/MTDO pads - which are IO4-IO7,",
+        "   i.e. four of the buttons. Required, not optional: IO15 has no internal",
+        "   pull and must not float (module datasheet 4.4).",
         "J3 is the RAW CELL, not a protected pack: pin 1 = B+, pin 2 = B- on its own net.",
         "   1S protection (U4 DW01A + Q2 FS8205A) is on-board, in the low side between B-",
         "   and GND, per the DW01A datasheet application circuit p.9.",
@@ -798,9 +834,18 @@ def main():
         "U3 (SOT-23-5, 1=IN 2=GND 3=EN 4=NC 5=OUT) accepts TLV75733PDBVR / AP2112K-3.3 /",
         "   XC6220B331MR unchanged. EN is tied to IN - do not leave it floating.",
         "U3 is the DBV package: RthJA 231 C/W, no thermal pad. Fine for this board's",
-        "   burst load, but do NOT draw a sustained 500mA from +3V3 via J6.",
+        "   burst load (C6 Wi-Fi TX peaks at 382mA, module datasheet Table 6-4), but do",
+        "   NOT draw a sustained 500mA from +3V3 via J6.",
         "Buttons SW3-SW8 use external 100k pull-ups (R17-R22) so they hold a defined level",
-        "   through deep sleep; firmware may still enable RTC pull-ups harmlessly in parallel.",
+        "   through deep sleep; firmware may still enable LP pull-ups harmlessly in parallel.",
+        "All six buttons sit on IO2-IO7 because the C6's LP (RTC) IOs are IO0-IO7 and",
+        "   nothing else - only those eight pins can wake the chip through EXT1. IO0 is",
+        "   VBAT_SENSE (ADC1_CH0), IO1 goes to J6, and that is the whole LP budget.",
+        "SW3/SW4 sit on MTMS/MTDI, which are also SDIO-slave clock-edge straps. R17/R18",
+        "   latch them high at reset; this board never uses SDIO slave, so it is inert.",
+        "U1 footprint is Espressif:ESP32-C6-WROOM-1, from Espressif's official KiCad",
+        "   library (install via KiCad's Plugin and Content Manager). Stock KiCad's",
+        "   RF_Module library has no C6-WROOM-1 - it only carries ESP32-C6-MINI-1.",
     ]):
         place_text(X0, NOTE_Y + _n * GRID * 1.5, _note, f"note{_n}")
 

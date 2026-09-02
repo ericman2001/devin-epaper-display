@@ -1,8 +1,16 @@
 # E-Paper Display — Hardware (KiCad schematic)
 
-Battery-powered 1.54" e-paper display built around the **ESP32-S3-WROOM-1-N8** module.
-This directory contains a **schematic only** — no PCB layout yet, but every
-component carries a footprint.
+Battery-powered 1.54" e-paper display built around the **ESP32-C6-WROOM-1-N8**
+module — a 32-bit **RISC-V** single-core part with Wi-Fi 6, Bluetooth LE 5.3 and
+802.15.4 (Thread/Zigbee). This directory contains a **schematic only** — no PCB
+layout yet, but every component carries a footprint.
+
+> ⚠️ **`U1` needs Espressif's KiCad library.** Stock KiCad has no
+> `ESP32-C6-WROOM-1` footprint — its `RF_Module` library carries only
+> `ESP32-C6-MINI-1` — so `U1` is drawn as `Espressif:ESP32-C6-WROOM-1`. Install
+> the *Espressif KiCad Library* from KiCad's **Plugin and Content Manager**
+> before opening the schematic or the footprint will not resolve. Every other
+> footprint on the board comes from the stock libraries as before.
 
 Files:
 
@@ -19,9 +27,9 @@ Connectivity is expressed with **global labels**, so the netlist is correct even
 though the auto-generated component placement is rough. Re-open in KiCad and
 rearrange/route as desired.
 
-> ⚠️ **`epaper-display-schematic.pdf` is stale** — it predates the current
-> revision and has not been re-rendered, because `kicad-cli` was not available
-> where these changes were made. Regenerate it (and re-run ERC) with the
+> ⚠️ **`epaper-display-schematic.pdf` is stale** — it still shows the
+> ESP32-S3 revision of this board and has not been re-rendered, because
+> `kicad-cli` was not available where these changes were made. Regenerate it (and re-run ERC) with the
 > commands in [Regenerating](#regenerating) before relying on it. The
 > `.kicad_sch` is the current source of truth; `gen_sch.py` generates it and
 > self-checks the netlist on every run.
@@ -40,7 +48,7 @@ rearrange/route as desired.
 ```
              USB-C (VBUS 5V)
                   |
-                  +--> 0R  --> D-/D+ (GPIO19 / GPIO20, native USB-Serial/JTAG)
+                  +--> 0R  --> D-/D+ (GPIO12 / GPIO13, native USB-Serial/JTAG)
                   |
                   v
         MCP73831 (SOT-23-5)  Li-ion/LiPo linear charger  (no power-path)
@@ -53,7 +61,7 @@ rearrange/route as desired.
                                                                               |
                         +-----------------------------------------------------+
                         |                                                     |
-              ESP32-S3-WROOM-1-N8 (3V3)                        AES200200A00 e-paper (VCI/VDDIO)
+              ESP32-C6-WROOM-1-N8 (3V3)                        AES200200A00 e-paper (VCI/VDDIO)
               + 100nF + 10uF decoupling                       + discrete DC/DC boost & charge pump
                                                               (L1/Q1/D3-D5, see §6)
 ```
@@ -65,27 +73,32 @@ rearrange/route as desired.
 - **Regulation:** `TLV75733PDBVR` (fixed 3.3V, 1 A, SOT-23-5, `IQ` 25 µA)
   generates the `+3V3` rail that powers the module and the display. See §2 for
   why this is linear rather than a switcher.
-- **Programming/serial:** ESP32-S3 native USB-Serial/JTAG on **GPIO19 (D-)** and
-  **GPIO20 (D+)**. No external USB-UART bridge required. UART0 (GPIO43/44) is
+- **Programming/serial:** ESP32-C6 native USB-Serial/JTAG on **GPIO12 (D-)** and
+  **GPIO13 (D+)**. No external USB-UART bridge required. UART0 (GPIO16/17) is
   also broken out on a header for an optional console.
-- **Expansion:** `J6`, a 2×10 0.1" header, carries a contiguous SPI block (bus +
-  3V3/GND + a deep-sleep-wake-capable IRQ), an I²C pair with DNP pull-ups, two
-  **ADC1** inputs (the only analog pins usable while Wi-Fi is on) and six spare
-  GPIOs — see §7.
+- **Expansion:** `J6`, a 2×4 0.1" header: 3V3/GND, an I²C pair with DNP
+  pull-ups, one pin that is both **ADC1** and deep-sleep-wake capable, and one
+  spare GPIO. That is four GPIOs, down from fifteen on the S3 revision — see §7
+  for the pin arithmetic that forces it.
 
 ---
 
 ## 2. Regulator choice — TLV75733P (linear, low-IQ)
 
-The ESP32-S3's Wi-Fi TX current peaks at **355 mA** (802.11b @20.5 dBm, module
-datasheet Table 6-4), and the module datasheet lists `IVDD ≥ 0.5 A` as a
-*recommended operating condition* (Table 6-2). The regulator therefore has to
-cover a ~0.5 A burst on a rail that is otherwise drawing microamps.
+The ESP32-C6's Wi-Fi TX current peaks at **382 mA** (802.11b, 1 Mbps DSSS
+@20.5 dBm, module datasheet Table 6-4). BLE and 802.15.4 peak lower — 309 mA and
+302 mA respectively at 19 dBm — so 802.11b is the sizing case. The regulator has
+to cover that burst on a rail that is otherwise drawing microamps.
+
+**This went up, not down, with the move to the C6:** the S3 peaked at 355 mA, so
+the burst the regulator has to serve grew by 27 mA (+8 %). Everything below still
+holds with margin — the `TLV75733P` is a 1 A part — but the two rejected
+candidates are rejected harder now, not less.
 
 Two earlier revisions got this wrong in opposite directions: an `MCP1700-3302E/TO`
 (250 mA) that browned out during transmit, then an **`MCP1825S-3302`** (500 mA,
 SOT-223) that handled the burst but drew **120 µA typ / 220 µA max of quiescent
-current** — roughly 15× the ESP32-S3's own deep-sleep draw, which made the
+current** — roughly 17× the ESP32-C6's own deep-sleep draw, which made the
 regulator the entire standby budget on a device that is asleep 99.98 % of the
 time.
 
@@ -126,14 +139,14 @@ Estimated life on the target cell (a 300 mAh LiHV pack charged to 4.20 V,
 
 | Regulator | `IQ` | Total standby | Est. life |
 |---|---|---|---|
-| MCP1825S (old) | 120 µA | ~137 µA | ~2 months |
-| **TLV75733P** | **25 µA** | **~42 µA** | **~5 months** |
-| TPS7A0533 (200 mA) | 1 µA | ~18 µA | ~6 months |
+| MCP1825S (old) | 120 µA | ~136 µA | ~2 months |
+| **TLV75733P** | **25 µA** | **~41 µA** | **~5 months** |
+| TPS7A0533 (200 mA) | 1 µA | ~17 µA | ~6 months |
 
 Dropping 120 → 25 µA roughly doubles the achievable life. Chasing 25 → 1 µA
 gains less than it looks: the cell's own self-discharge and the panel's 1–5 µA
 sleep current start to dominate, and the only SOT-23-5 parts down there
-(TPS7A05) top out at **200 mA**, which cannot serve a 355 mA TX burst. 25 µA is
+(TPS7A05) top out at **200 mA**, which cannot serve a 382 mA TX burst. 25 µA is
 the knee of the curve.
 
 ### TLV75733P specifics (SBVS322C)
@@ -201,23 +214,35 @@ always on — **it must not be left floating.**
 
 ---
 
-## 3. ESP32-S3-WROOM-1 (edge-castellated, hand-solderable)
+## 3. ESP32-C6-WROOM-1 (edge-castellated, hand-solderable)
 
-The WROOM-1 is a certified module that already contains the crystal, antenna and
-SPI flash. It is **edge-castellated**, so every required signal is on a
+The WROOM-1 is a certified module that already contains the 40 MHz crystal,
+antenna and SPI flash. It is **edge-castellated** — 14 pads per long edge on a
+1.27 mm pitch, 1.5 × 0.9 mm each — so every required signal is on a
 side-castellation solderable with a fine-tip iron.
 
+- **Same outline as the S3 module it replaces.** 18.0 × 25.5 × 3.1 mm (datasheet
+  Figure 10-1), identical to the ESP32-S3-WROOM-1, so board outline, keepout and
+  antenna clearance are unchanged. The **pads are not** compatible: 29 pins
+  against 41, in a different order. This is a footprint change, not a drop-in.
 - **Bottom GND/thermal pad is redundant.** Ground is also available on the
-  castellations (pins 1 and 40) and the pad carries no unique signal. It may be
+  castellations (pins 1 and 28) and the pad carries no unique signal. It may be
   **left unsoldered or served by a via** — no reflow/hot-air is needed to make
   the module functional. (For thermal/RF margin in a final product you can add a
   via and touch it with the iron, but it is optional.)
-- Uses the **ESP32-S3-WROOM-1-N8** (quad SPI flash, no PSRAM). GPIO26–32 are
-  internal to the module (SPI flash) and are not broken out. On **octal**-PSRAM
-  variants (`-N4R8` / `-N8R8` / `-N16R8` / `-N16R16VA`) GPIO35–37 are consumed by
-  the PSRAM; those variants are not used here, so GPIO35–37 are free and are
-  exposed on the expansion header. GPIO47/48 also assume a non-`R16VA` variant,
-  because `-N16R16VA` runs 1.8 V I/O on those two pins.
+- Uses the **ESP32-C6-WROOM-1-N8** (8 MB quad SPI flash). GPIO24–30 are internal
+  to the module (SPI flash) and are not broken out, and GPIO14 is not bonded out
+  of the package — module pin 22 is a real `NC`. Everything else is available:
+  **23 GPIOs**, and this design uses all 23.
+- **The PSRAM caveats from the S3 revision are gone.** There is no PSRAM variant
+  of the C6-WROOM-1 — the series is N4/N8/N16, flash only (datasheet Table 1-1) —
+  so there are no pins whose availability depends on which module was ordered,
+  and no 1.8 V-I/O variant to avoid.
+- **RISC-V, single core, up to 160 MHz** (the S3 was dual-core Xtensa at
+  240 MHz). Radios gained: Wi-Fi 6 (802.11ax), Bluetooth LE 5.3, and 802.15.4 for
+  Thread/Zigbee. For a display that wakes four times a day this is a net win on
+  the axis that matters — see the thermal table in §10, where the sustained
+  compute case drops from 108 mA to 38 mA.
 
 ### Module support circuitry
 
@@ -225,11 +250,12 @@ side-castellation solderable with a fine-tip iron.
 |----------|-------|-------|
 | 3V3 decoupling | `C5` 100nF + `C6` 10µF | at the 3V3 pin |
 | Reset (EN) | `R7` 10k pull-up to 3V3, `C7` 1µF to GND, `SW1` to GND | RC power-on reset + optional EN/RESET button. *Do not leave EN floating.* |
-| Boot strap | `R8` 10k pull-up to 3V3 on **GPIO0**, `SW2` (BOOT) to GND | S3 download-boot strap is **GPIO0** |
-| E-paper CS | `R14` **100k** pull-up to 3V3 on **GPIO6** | keeps the panel deselected during reset/power-up |
-| E-paper reset | `R16` **100k** pull-down to GND on **GPIO8** | holds active-low `RES#` asserted while the ESP32 is in reset; the panel stays in reset until firmware drives GPIO8 high, alongside the `EN`/`SW1` reset RC |
-| GPIO45 / GPIO46 | left at datasheet default | strapping pins — see §7 |
-| GPIO3 | `R15` 10k pull-down (**populated**) | required, not optional — see §7 |
+| Boot strap | `R8` 10k pull-up to 3V3 on **GPIO9**, `SW2` (BOOT) to GND | C6 download-boot strap is **GPIO9** (the S3's was GPIO0) |
+| Boot strap 2 | `R28` 10k pull-up to 3V3 on **GPIO8** (**populated**) | GPIO8 must read 1 for download boot — required, see §7 |
+| E-paper CS | `R14` **100k** pull-up to 3V3 on **GPIO21** | keeps the panel deselected during reset/power-up |
+| E-paper reset | `R16` **100k** pull-down to GND on **GPIO19** | holds active-low `RES#` asserted while the ESP32 is in reset; the panel stays in reset until firmware drives GPIO19 high, alongside the `EN`/`SW1` reset RC |
+| GPIO15 | `R15` 10k pull-**up** (**populated**) | JTAG-source strap; required, not optional — see §7 |
+| GPIO4 / GPIO5 | button pull-ups `R17`/`R18` latch them high | SDIO-slave clock-edge straps; inert here — see §7 |
 
 `R14`/`R16` are 100 kΩ rather than 10 kΩ: they only ever have to overcome a CMOS
 input's leakage, and at 10 kΩ each would sink 330 µA whenever firmware drives
@@ -432,19 +458,20 @@ capacity. It also meaningfully improves calendar life, which matters on a device
 that sits near full charge for months at a time.
 
 **The 80C rating is wildly overspecified for this load, and that is fine.** We
-draw 355 mA, about 1.2C. The one thing it does buy is very low internal
+draw 382 mA, about 1.3C. The one thing it does buy is very low internal
 resistance, which removes the voltage-sag concern that a generic 300 mAh cell
-would have created:
+would have created. Cell OCV needed = 3.3 V + `U3` dropout (0.425 V/A) + sag:
 
 | Cell | Load | Sag | Cell OCV needed |
 |---|---|---|---|
-| Generic 300 mAh, 300 mΩ | TX 355 mA | 106 mV | 3.56 V |
-| Generic 300 mAh, 300 mΩ | TX + refresh 500 mA | 150 mV | 3.66 V |
-| **80C cell + `Q2`, ~75 mΩ** | **TX 355 mA** | **27 mV** | **3.48 V** |
-| **80C cell + `Q2`, ~75 mΩ** | **TX + refresh 500 mA** | **38 mV** | **3.55 V** |
+| Generic 300 mAh, 300 mΩ | TX 382 mA | 115 mV | 3.58 V |
+| Generic 300 mAh, 300 mΩ | TX + refresh 530 mA | 159 mV | 3.68 V |
+| **80C cell + `Q2`, ~75 mΩ** | **TX 382 mA** | **29 mV** | **3.49 V** |
+| **80C cell + `Q2`, ~75 mΩ** | **TX + refresh 530 mA** | **40 mV** | **3.57 V** |
 
-Even the combined TX-plus-refresh case now needs only 3.55 V of open-circuit
-voltage instead of 3.66 V. Serialising Wi-Fi and panel refresh (fetch,
+The C6's 27 mA higher TX peak moves each of these by 10–20 mV; it does not
+change the conclusion. Even the combined TX-plus-refresh case needs only 3.57 V
+of open-circuit voltage instead of 3.68 V. Serialising Wi-Fi and panel refresh (fetch,
 disconnect, then process and refresh) is still the right firmware structure, but
 it is no longer load-bearing for the power budget — it is just good practice.
 
@@ -461,11 +488,11 @@ Standby, with the protection board's own draw included:
 | Contributor | Current |
 |---|---|
 | `U3` `IGND` | 25.0 µA |
-| ESP32-S3 deep sleep (RTC mem on) | 8.0 µA |
+| ESP32-C6 deep sleep (RTC timer + LP memory on) | 7.0 µA |
 | Panel deep sleep | 5.0 µA |
 | `R9`/`R10` divider (1M/1M) | 2.1 µA |
 | `U4` DW01A `IDD` (typ; 6.0 µA max) | 2.0 µA |
-| **Total** | **~42 µA → 3.84 mWh/day** |
+| **Total** | **~41 µA → 3.75 mWh/day** |
 
 Slightly *better* than the external-protection-board variant this replaced: the
 DW01A's 2 µA typ undercuts the ~3 µA budgeted for an outboard PCB, and deleting
@@ -503,14 +530,14 @@ cycles dominate and cadence is the only lever that matters.
 USB-C VBUS ──► MCP73831 VDD (C1 4.7µF, D7 SMAJ5.0A TVS)
 MCP73831 VBAT ──► VBAT node ──► J3 cell B+ (C2 4.7µF)
 J3 cell B− ──► U4/Q2 1S protection (DW01A + FS8205A) ──► GND
-VBAT ──► TLV75733P IN/EN (C3 4.7µF + C20 100µF) ──► +3V3 (C4 4.7µF + C18 47µF) ──► ESP32-S3 + e-paper
-VBAT ──► R9/R10 (1M/1M divider, C8 100nF) ──► GPIO1 (ADC1_CH0) battery sense
+VBAT ──► TLV75733P IN/EN (C3 4.7µF + C20 100µF) ──► +3V3 (C4 4.7µF + C18 47µF) ──► ESP32-C6 + e-paper
+VBAT ──► R9/R10 (1M/1M divider, C8 100nF) ──► GPIO0 (ADC1_CH0) battery sense
 ```
 
 ### 5.1 Rail buffering
 
 The module datasheet lists `IVDD ≥ 0.5 A` as a *recommended operating
-condition* (Table 6-2), and an 802.11b TX burst is **355 mA peak** (Table 6-4).
+condition* (Table 6-2), and an 802.11b TX burst is **382 mA peak** (Table 6-4).
 `U3` is rated at 1 A with a 1.2 A minimum current limit, so the regulator itself
 has headroom; the capacitors are there to cover the transient while its loop
 responds.
@@ -539,7 +566,7 @@ pairing the cable would only work in one orientation. `CC1` (`A5`) and `CC2`
 (`B5`) each get their **own 5.1 kΩ `Rd`** (`R1`/`R2`) to advertise a sink and
 must *not* be shorted together. `SBU1`/`SBU2` (`A8`/`B8`) are no-connect.
 
-`D+`/`D−` go through **0 Ω** links (`R3`/`R4`) to the module — the ESP32-S3's USB
+`D+`/`D−` go through **0 Ω** links (`R3`/`R4`) to the module — the ESP32-C6's USB
 PHY already contains its series termination, so the 22 Ω resistors this design
 previously carried would have added 44 Ω differential to a 90 Ω pair and
 squashed the full-speed eye. The pads are kept as tuning stubs.
@@ -554,15 +581,22 @@ source is hot-pluggable. This includes USB cables."*
 
 `R9`/`R10` are **1 MΩ/1 MΩ**, not the 100 kΩ/100 kΩ this design previously used.
 The divider sits across the cell permanently, and at 100 kΩ it drew
-`4.2 V / 200 kΩ = 21 µA` — roughly triple the ESP32-S3's own deep-sleep current,
-on a device whose entire premise is deep sleep. At 1 MΩ it draws 2.1 µA.
+`4.2 V / 200 kΩ = 21 µA` — three times the ESP32-C6's own 7 µA deep-sleep
+current, on a device whose entire premise is deep sleep. At 1 MΩ it draws
+2.1 µA.
 
 The trade is a 500 kΩ source impedance, which is far above what the SAR ADC
 likes to see directly. `C8` (100 nF) is what makes that work: it is a charge
 reservoir some four orders of magnitude larger than the ADC's sampling
 capacitor. Allow ~250 ms of settling after wake (the divider's RC is ~50 ms) and
-average several samples. `ADC1` is used deliberately — `ADC2` is unavailable
-while Wi-Fi is active.
+average several samples.
+
+The sense pin is **GPIO0 = ADC1_CH0** (it was GPIO1 on the S3). The C6 has only
+one ADC — `ADC1`, seven channels on GPIO0–GPIO6 — so the S3-era rule that `ADC2`
+is unusable while Wi-Fi is running simply does not apply here. What replaces it
+is a *quantity* problem: those seven pins are also seven of the eight LP GPIOs
+the buttons need, which is why the expansion header ends up with exactly one
+analog pin. See §7.
 
 ---
 
@@ -629,46 +663,119 @@ these pins may be left **Open** when not in use).
 
 ## 7. Net-by-net connection list & final GPIO assignment
 
-### ESP32-S3 ↔ e-paper (verified — no collision with USB or strapping pins)
+### The C6 pin budget (read this first)
 
-| Display pin | Signal | Net | ESP32-S3 |
+The move from `ESP32-S3-WROOM-1-N8` to `ESP32-C6-WROOM-1-N8` is not a
+like-for-like swap of the pin assignment. The S3 module broke out 36 GPIOs; the
+C6 module breaks out **23**, and this design uses **all 23**. Worse, three
+separate scarce resources on the C6 all live in the *same* eight-pin block:
+
+| Resource | Pins on the C6 | Source |
+|---|---|---|
+| LP (RTC) GPIO — the only pins EXT1 can wake from | **GPIO0–GPIO7** | `SOC_RTCIO_PIN_COUNT` = 8 |
+| `ADC1` (the only ADC — there is no `ADC2`) | **GPIO0–GPIO6** | datasheet Table 3-1 |
+| SPI2 IO MUX (`FSPI*`) | GPIO2/4/5/6/7 + GPIO16 | ESP-IDF `spi_pins.h` |
+
+Six buttons plus battery sense claim seven of the eight LP pins. That is what
+sets everything else:
+
+- **GPIO7 gets a button**, because it is the one LP pin with no ADC channel
+  (Table 3-1 lists no `ADC1_CHn` against `IO7`) — so spending it on a button
+  wastes nothing.
+- **GPIO0 gets `VBAT_SENSE`** and **GPIO1 is the single pin left over**. GPIO1 is
+  `ADC1_CH1` *and* `LP_GPIO1`, so it goes to the expansion header as the only
+  pin there that can do analog *or* wake the board.
+- **Panel SPI runs through the GPIO matrix**, not the SPI2 IO MUX, because every
+  IO MUX pin is a button or UART0. This costs nothing: the matrix runs to 40 MHz
+  and an SSD1681 panel is clocked at a few MHz.
+
+**What this costs, stated plainly:** the expansion header goes from 15 GPIOs to
+4, the dedicated four-wire SPI block on it is gone, and the two independent ADC
+pins collapse into one pin shared with the interrupt line. Nothing else on the
+board changes function.
+
+**What it buys:** a RISC-V core, Wi-Fi 6, 802.15.4 (Thread/Zigbee), 7 µA deep
+sleep instead of 8 µA, a third of the sustained compute current, and the deletion
+of the S3's whole "ADC2 is unusable while Wi-Fi is on" problem.
+
+### ESP32-C6 ↔ e-paper (verified — no collision with USB or strapping pins)
+
+| Display pin | Signal | Net | ESP32-C6 |
 |-------------|--------|-----|----------|
-| 13 | SCL (SCLK) | `EPD_SCLK` | **GPIO4** |
-| 14 | SDA (MOSI) | `EPD_MOSI` | **GPIO5** |
-| 12 | CS# | `EPD_CS` | **GPIO6** (`R14` 100 kΩ pull-up) |
-| 11 | D/C# | `EPD_DC` | **GPIO7** |
-| 10 | RES# | `EPD_RST` | **GPIO8** (`R16` 100 kΩ pull-down) |
-| 9 | BUSY | `EPD_BUSY` | **GPIO9** (input) |
+| 13 | SCL (SCLK) | `EPD_SCLK` | **GPIO23** |
+| 14 | SDA (MOSI) | `EPD_MOSI` | **GPIO22** |
+| 12 | CS# | `EPD_CS` | **GPIO21** (`R14` 100 kΩ pull-up) |
+| 11 | D/C# | `EPD_DC` | **GPIO20** |
+| 10 | RES# | `EPD_RST` | **GPIO19** (`R16` 100 kΩ pull-down) |
+| 9 | BUSY | `EPD_BUSY` | **GPIO18** (input) |
 | 8 | BS1 | `GND` | tie low → 4-wire SPI |
 | 6 / 7 | TSCL / TSDA | `EPD_TSCL` / `EPD_TSDA` | optional I²C temp header (`J4`), else Open |
 
-`GPIO4–7` are the prompt-specified SPI pins; `RES`/`BUSY` use the next free
-`GPIO8`/`GPIO9`. None collide with USB (GPIO19/20) or the strapping pins
-(GPIO0/45/46/3).
+The panel moved wholesale from `GPIO4–GPIO9` on the S3 to `GPIO18–GPIO23` here.
+`GPIO18–23` are the only contiguous block of six pins on the C6 that is neither
+LP-domain, ADC-capable, a strapping pin, nor claimed by the USB PHY — which is
+exactly why the panel gets them: the panel is the one peripheral on this board
+that needs no special pin property at all. Their alternate functions
+(`SDIO_CMD/CLK/DATA0-3`, `FSPICS2–5`) are unused here.
 
 ### Reserved / special pins
 
-| Signal | ESP32-S3 | Notes |
+| Signal | ESP32-C6 | Notes |
 |--------|----------|-------|
-| USB D- | **GPIO19** | via `R4` 0 Ω to USB-C `D-` |
-| USB D+ | **GPIO20** | via `R3` 0 Ω to USB-C `D+` |
-| BOOT strap | **GPIO0** | 10k pull-up + BOOT button |
-| Battery sense | **GPIO1** (ADC1_CH0) | VBAT ÷2 divider (1M/1M) |
-| UART0 TXD/RXD | **GPIO43 / GPIO44** | optional console header `J5` |
-| VDD_SPI strap | **GPIO45** | left at default (weak pull-down = 0); NC |
-| ROM-msg / boot strap | **GPIO46** | left at default (weak pull-down = 0); NC |
-| JTAG-source strap | **GPIO3** | `R15` 10 kΩ pull-down, **populated**; `STRAP_IO3` |
+| USB D− | **GPIO12** | via `R4` 0 Ω to USB-C `D−`; fixed by the USB Serial/JTAG PHY |
+| USB D+ | **GPIO13** | via `R3` 0 Ω to USB-C `D+`; fixed by the USB Serial/JTAG PHY |
+| BOOT strap | **GPIO9** | `R8` 10k pull-up + `SW2` BOOT button |
+| Boot-mode strap 2 | **GPIO8** | `R28` 10k pull-up, **populated**; also `J6` pin 7 |
+| Battery sense | **GPIO0** (ADC1_CH0) | VBAT ÷2 divider (1M/1M) |
+| UART0 TXD/RXD | **GPIO16 / GPIO17** | optional console header `J5` |
+| JTAG-source strap | **GPIO15** | `R15` 10 kΩ pull-**up**, **populated**; `STRAP_IO15` |
+| SDIO-edge straps | **GPIO4 / GPIO5** | MTMS/MTDI; latched high by the button pull-ups, inert here |
 
-Strapping-pin defaults are from the ESP32-S3-WROOM-1 datasheet Table 4-1
-(GPIO0 = weak pull-up 1, GPIO3 = floating, GPIO45/46 = weak pull-down 0).
+All datasheet references in this section are to
+`components/esp32-c6-wroom-1_wroom-1u_datasheet_en.pdf` (v1.4). Strapping-pin
+defaults are Table 4-1:
+`GPIO9` = weak pull-up (1), and `GPIO8`, `GPIO15`, `MTMS`, `MTDI` all
+**floating**.
 
-`R15` is **not** optional and must not be depopulated. GPIO3 is the one strapping
-pin with no internal pull resistor, and datasheet §4.4 is explicit: *"This pin
-does not have any internal pull resistors and the strapping value must be
-controlled by the external circuit that cannot be in a high impedance state."*
-With default (unburnt) eFuses the strap value happens to be ignored, so a
-floating GPIO3 boots fine today — it breaks the moment anyone burns
-`EFUSE_STRAP_JTAG_SEL`, and until then it is simply a floating CMOS input.
+#### `R15` — GPIO15, and why it is a pull-*up* here
+
+`R15` is **not** optional and must not be depopulated. GPIO15 is the C6's
+one strapping pin with no internal pull resistor, and datasheet §4.4 is explicit:
+*"This pin does not have any internal pull resistors and the strapping value must
+be controlled by the external circuit that cannot be in a high impedance state."*
+That is the same sentence the S3 datasheet used about its GPIO3, and it is the
+same reason the resistor exists.
+
+**The direction is inverted from the S3 revision, deliberately.** Datasheet Table
+4-7: once `EFUSE_JTAG_SEL_ENABLE` is burnt, `GPIO15 = 1` keeps JTAG on the USB
+Serial/JTAG controller and `GPIO15 = 0` moves it to the `MTDI`/`MTCK`/`MTMS`/
+`MTDO` pads. On the C6 those pads are **GPIO4–GPIO7**, which this board wires to
+four of the six buttons — so pad-JTAG is not reachable here at all, and pulling
+the strap low would trade a working debug port for an unusable one. With default
+(unburnt) eFuses GPIO15 is ignored and USB Serial/JTAG is used regardless; `R15`
+is what keeps that true afterwards, and what stops the pin floating meanwhile.
+
+#### `R28` — GPIO8, the one that can brick flashing
+
+`R28` (10 kΩ to `+3V3`, **populated**) is also required. GPIO8 is floating by
+default and joint download boot needs `GPIO8 = 1` with `GPIO9 = 0`; datasheet
+Table 4-3 notes that `GPIO8 = 0` with `GPIO9 = 0` is an **invalid** combination.
+Because GPIO8 is also `J6` pin 7, anything plugged into the expansion header must
+not hold it low through reset, or the board stops being flashable over USB. In
+normal boot (GPIO9 high) GPIO8 is ignored.
+
+It does *not* disable ROM message printing: Table 4-5 shows UART0 ROM printing is
+enabled regardless of GPIO8 while `EFUSE_UART_PRINT_CONTROL` is 0, which is its
+default.
+
+#### GPIO4 / GPIO5 (MTMS / MTDI)
+
+These are strapping pins too, for the **SDIO slave** sampling and driving clock
+edge (Table 4-4). `R17`/`R18`, the pull-ups on `BTN_UP` and `BTN_DOWN`, latch both
+to 1 at reset — unless that button happens to be held down — selecting "rising
+edge sampling, rising edge output". This board never uses the SDIO slave
+interface, so the setting is inert either way. It is documented so nobody
+rediscovers it as a mystery.
 
 ### Power / battery nets
 
@@ -677,81 +784,66 @@ floating GPIO3 boots fine today — it breaks the moment anyone burns
 | `VBUS` | USB-C `A4/B4/A9/B9`, MCP73831 VDD, `C1`, ESD `D1`, TVS `D7`, `R6` (STAT LED), `#FLG1` |
 | `VBAT` | MCP73831 VBAT, `U3` IN **and** EN, `J3` pin 1 (B+), `C2`, `C3`, `C20`, `R24`, `R9` (sense) |
 | `BATT_NEG` | `J3` pin 2 (cell B−), `U4` VSS, `Q2` S1, `C21` — **not** board GND |
-| `+3V3` | `U3` OUT, module 3V3, display VCI/VDDIO, `C4/C5/C6/C12/C18`, `R7/R8/R12/R13/R14/R17–R22/R23/R26/R27`, `L1`, header power |
+| `+3V3` | `U3` OUT, module 3V3, display VCI/VDDIO, `C4/C5/C6/C12/C18`, `R7/R8/R12/R13/R14/R15/R17–R22/R23/R26/R27/R28`, `L1`, header power |
 | `GND` | common ground / all decoupling returns / module GND pads / USB-C shield `S1` / `#FLG2` |
 
 `#FLG1`/`#FLG2` are `PWR_FLAG`s (not real parts) marking `VBUS`/`GND` as
 externally driven for ERC.
 
-### Expansion header (`J6`, 2×10)
+### Expansion header (`J6`, 2×4)
 
-Fifteen spare GPIOs, laid out in functional blocks rather than in numeric order,
-on a 2×10 0.1" header (20 positions — one row-pair *shorter* than the 2×12 it
-replaces, which broke the same 15 GPIOs out in pin order and then padded the
-last six positions with `GND` to fill the connector).
+Four spare GPIOs on a 2×4 0.1" header. This was a 2×10 carrying fifteen GPIOs on
+the S3 revision; after the panel, the six buttons, USB, UART0 and the two
+strapping pins, four is what the C6 has left. Shrinking the connector is the
+honest way to say so — a 2×10 with twelve grounds on it would only look like it
+kept the capability.
 
 | Pin | Signal | GPIO | Also | Pin | Signal | GPIO | Also |
 |----:|--------|------|------|----:|--------|------|------|
 | 1 | `+3V3` | — | ≤ 150 mA, see below | 2 | `GND` | — | |
-| 3 | `EXP_SPI_SCLK` | **IO38** | | 4 | `EXP_SPI_MOSI` | **IO39** | |
-| 5 | `EXP_SPI_MISO` | **IO40** | | 6 | `EXP_SPI_CS` | **IO41** | |
-| 7 | `EXP_IRQ` | **IO11** | RTC (wake) · ADC2_CH0 · FSPID | 8 | `GND` | — | |
-| 9 | `EXP_SDA` | **IO12** | RTC · ADC2_CH1 · FSPICLK | 10 | `EXP_SCL` | **IO13** | RTC · ADC2_CH2 · FSPIQ |
-| 11 | `EXP_ADC_A` | **IO2** | **ADC1_CH1** · TOUCH2 · RTC | 12 | `GND` | — | |
-| 13 | `EXP_ADC_B` | **IO10** | **ADC1_CH9** · TOUCH10 · RTC | 14 | `GND` | — | |
-| 15 | `EXP_IO42` | IO42 | MTMS | 16 | `EXP_IO47` | IO47 | ¹ |
-| 17 | `EXP_IO48` | IO48 | ¹ | 18 | `EXP_IO35` | IO35 | ² |
-| 19 | `EXP_IO36` | IO36 | ² | 20 | `EXP_IO37` | IO37 | ² |
+| 3 | `EXP_SDA` | **IO10** | plain digital | 4 | `EXP_SCL` | **IO11** | plain digital |
+| 5 | `EXP_ADC_IRQ` | **IO1** | **ADC1_CH1** · LP_GPIO1 (EXT1 wake) | 6 | `GND` | — | |
+| 7 | `EXP_IO8` | **IO8** | strapping pin — `R28` pull-up | 8 | `GND` | — | |
 
-¹ 3.3 V on this board (`-N8`); on a `-N16R16VA` these two run at 1.8 V, because
-that variant's `VDD_SPI` is 1.8 V (module datasheet Table 3-1 note c, Table 1-1
-note 7).
-² **Only free because this board specifies `-N8`.** On any octal-PSRAM variant
-(`-N4R8`, `-N8R8`, `-N16R8`, `-N16R16VA`) the module wires `IO35–IO37` to the
-PSRAM die (module datasheet Table 3-1, note b) — do not substitute an octal-`R`
-module and then use header pins 18/19/20. Quad-PSRAM `R2` parts are fine; their
-PSRAM shares the flash bus on the internal `GPIO26–32`. The three are placed
-last so the caveat lands on one contiguous group at the far end of the header.
+**Pin 5 (`IO1`) is the pin that had to be defended.** It is `ADC1_CH1` *and*
+`LP_GPIO1`, which makes it simultaneously the board's only spare analog input and
+the only header pin that can wake the chip from deep sleep through EXT1. On the
+S3 those were two separate jobs spread across three pins (`EXP_ADC_A`,
+`EXP_ADC_B`, `EXP_IRQ`); here one pin does all of it, so **a sensor that needs an
+interrupt and a sensor that needs an analog input are now mutually exclusive**.
+That is a real loss and it is a direct consequence of the part choice, not of the
+header layout. It faces a `GND` pin (6) so an analog source still gets a short
+return.
 
-**Pins 1–8 are a self-contained SPI block:** 3V3, GND, the four bus signals and
-an interrupt line, closed by a second GND. A SPI sensor breakout wires to one
-contiguous 2×4 corner of the header. Two things about it are deliberate:
+**Pins 3/4 (`IO10`/`IO11`) are labelled I²C** because most sensors are I²C. They
+are the two remaining pins with no strapping duty and no LP-domain role at all,
+which is exactly what makes them the right pair to label. As on the S3 the label
+is a convention, not a hardware constraint — the C6 routes I²C through the GPIO
+matrix, so any two GPIOs would do. `R26`/`R27` (4.7 kΩ, **DNP**) are the bus
+pull-ups: nearly every breakout board already carries its own pair, and two sets
+in parallel halve the bus impedance. Fit them if the sensor has none, or if a
+long ribbon needs stiffer rising edges. Either way they draw nothing while the
+bus idles high, so they cost no sleep current.
 
-- **The IRQ line is an RTC GPIO (`IO11`).** Only `GPIO0–21` can wake the chip
-  from deep sleep through EXT1; `GPIO35–48` cannot. On a board that is asleep
-  99.98 % of the time, an interrupt pin that cannot wake it would be decorative.
-  It is an ordinary GPIO if a peripheral does not need it.
-- **The bus signals run through the GPIO matrix, so ≤ 40 MHz.** That is far
-  above any sensor (a BME280 tops out at 10 MHz), but it is not the chip's
-  maximum. If firmware ever needs a genuine 80 MHz bus — an SD card, a fast TFT
-  — pins **7/9/10 are `IO11`/`IO12`/`IO13` = `FSPID`/`FSPICLK`/`FSPIQ`**, the
-  only trio ESP-IDF will hardware-mux for SPI2 (`SPI2_IOMUX_PIN_NUM_*`). Put
-  MOSI/SCLK/MISO there instead, keep chip-select anywhere (CS is not in the
-  timing-critical path), and give up the IRQ and I²C labels.
+**Pin 7 (`IO8`) is the weakest position on the header.** GPIO8 is a strapping pin
+that must read 1 at reset for download boot, held there by `R28` — see the `R28`
+note above. Anything plugged in here must not drive it low through reset or the
+board stops being flashable over USB. It is an ordinary GPIO once the chip is
+running.
 
-**Pins 9/10 are labelled I²C** because most sensors are I²C, not SPI. The label
-is a convention, not a hardware constraint — the S3 routes I²C entirely through
-the GPIO matrix, so any two GPIOs would do. `R26`/`R27` (4.7 kΩ, **DNP**) are
-the bus pull-ups: nearly every breakout board already carries its own pair, and
-two sets in parallel halve the bus impedance. Fit them if the sensor has none,
-or if a long ribbon needs stiffer rising edges. Either way they draw nothing
-while the bus idles high, so they cost no sleep current.
+**There is no SPI block, and there cannot be one.** SPI2's IO MUX pins on the C6
+are `GPIO2/4/5/6/7` plus `GPIO16`, every one of which is a button or UART0 here,
+and there are not four spare matrix-routable pins left to build a bit-banged or
+matrix-routed bus out of either. A SPI peripheral has to share pins 3/4/5/7,
+which works (the matrix runs to 40 MHz, far above any sensor) but costs the I²C
+and interrupt labels. This is the single biggest capability the board gives up in
+moving to the C6.
 
-**Pins 11 and 13 are the only two Wi-Fi-safe analog inputs this board can
-offer**, and getting them there is what drove the button re-assignment below.
-The ESP32-S3 has two ADCs; **ADC2 is unusable whenever Wi-Fi is running**
-(the driver owns it and `adc2_get_raw()` returns `ESP_ERR_TIMEOUT`), and
-**ADC1 exists only on GPIO1–GPIO10**. Of those, `GPIO1` is `VBAT_SENSE`,
-`GPIO3` is the JTAG-source strap and `GPIO4–GPIO9` are the panel — so `GPIO2`
-and `GPIO10` are the entire remaining supply of Wi-Fi-safe analog pins, and they
-were being spent on two push buttons, which do not care what pin they sit on.
-Each faces a `GND` pin (12 and 14) so an analog sensor gets a short return.
-Both are also RTC/touch pins, so they can be sampled by the ULP while the main
-cores sleep, or used as capacitive touch pads.
-
-`IO42`, `IO47`, `IO48` and `IO35–IO37` (pins 15–20) are plain digital spares.
-If a third analog input is needed and it is only ever read with the radio off,
-`IO11`/`IO12`/`IO13` on pins 7/9/10 are `ADC2_CH0/1/2`.
+**Nothing here depends on which module variant was ordered.** The S3 revision
+carried footnotes about `IO35–IO37` and `IO47/IO48` being usable only on
+non-octal-PSRAM, non-`R16VA` modules. The C6-WROOM-1 series is N4/N8/N16 —
+flash only, no PSRAM option at all (datasheet Table 1-1) — so those caveats are
+gone entirely.
 
 **Power:** `+3V3` on pin 1 comes straight off `U3`. The regulator is a 1 A part,
 but in SOT-23-5 it is not a continuous half-amp supply — see §2 and §10; keep
@@ -762,32 +854,45 @@ handing an unfused 24 A source to a 0.1" jumper is not a favour.
 ### User buttons (`SW3`–`SW8`)
 
 D-pad + select + cancel, each wired pin 1 → GPIO, pin 2 → `GND` (active low),
-with a **100 kΩ external pull-up to +3V3**. All six are **RTC-capable GPIOs
-(GPIO0–21)**, so any of them can be used as a deep-sleep wake source.
+with a **100 kΩ external pull-up to +3V3**. All six sit on **`GPIO2`–`GPIO7`**,
+which is six of the C6's eight LP (RTC) IOs — the complete set of pins EXT1 can
+wake the chip from.
 
-| Ref | Function | Net | GPIO | Pull-up |
-|-----|----------|-----|------|---------|
-| SW3 | up | `BTN_UP` | **GPIO14** | `R17` 100k |
-| SW4 | down | `BTN_DOWN` | **GPIO15** | `R18` 100k |
-| SW5 | left | `BTN_LEFT` | **GPIO16** | `R19` 100k |
-| SW6 | right | `BTN_RIGHT` | **GPIO17** | `R20` 100k |
-| SW7 | select | `BTN_SELECT` | **GPIO18** | `R21` 100k |
-| SW8 | cancel | `BTN_CANCEL` | **GPIO21** | `R22` 100k |
+| Ref | Function | Net | GPIO | Also | Pull-up |
+|-----|----------|-----|------|------|---------|
+| SW3 | up | `BTN_UP` | **GPIO4** | MTMS · ADC1_CH4 · FSPIHD | `R17` 100k |
+| SW4 | down | `BTN_DOWN` | **GPIO5** | MTDI · ADC1_CH5 · FSPIWP | `R18` 100k |
+| SW5 | left | `BTN_LEFT` | **GPIO6** | MTCK · ADC1_CH6 · FSPICLK | `R19` 100k |
+| SW6 | right | `BTN_RIGHT` | **GPIO7** | MTDO · FSPID — *no ADC* | `R20` 100k |
+| SW7 | select | `BTN_SELECT` | **GPIO3** | ADC1_CH3 | `R21` 100k |
+| SW8 | cancel | `BTN_CANCEL` | **GPIO2** | ADC1_CH2 · FSPIQ | `R22` 100k |
 
-**These moved off `GPIO2` and `GPIO10–GPIO13`** when the expansion header was
-reorganised, and the reasoning is entirely about what those pins are worth to
-something *else*: `GPIO2`/`GPIO10` are the board's last two ADC1 (Wi-Fi-safe
-analog) pins and `GPIO11–13` are the FSPI IO MUX trio, while a push button works
-identically on any pin that can wake the chip. The replacements — `GPIO14–18`
-and `GPIO21` — are all still RTC GPIOs, so nothing about EXT1 wake changes.
-`GPIO15`/`GPIO16` carry `XTAL_32K_P`/`XTAL_32K_N` as an alternate function; the
-WROOM-1 has no 32 kHz crystal fitted, so they are ordinary GPIOs here.
+**On the S3 this allocation was a choice; on the C6 it is arithmetic.** The S3
+had RTC capability across `GPIO0–GPIO21`, so the buttons could be moved around
+freely to free up whatever else wanted those pins. The C6 has exactly eight LP
+IOs (`GPIO0–GPIO7`) and no others can wake the chip, so six buttons take six of
+them and the remaining two go to `VBAT_SENSE` (GPIO0) and the header (GPIO1).
+There is no arrangement that also leaves an ADC pin or an IO MUX SPI pin free.
 
-### Why external pull-ups, when the S3 has internal ones
+Within that constraint two details are still deliberate:
+
+- **`GPIO7` gets a button because it is the only LP pin with no ADC channel**
+  (datasheet Table 3-1 lists no `ADC1_CHn` for `IO7`). Spending the board's one
+  non-analog LP pin on a button wastes nothing; spending an analog one would.
+- **`GPIO0`/`GPIO1` are kept off the buttons** so the analog pair stays intact.
+  They carry `XTAL_32K_P`/`XTAL_32K_N` as an alternate function; the module has
+  no 32 kHz crystal fitted, so they are ordinary GPIOs here. Fitting one later
+  would take both — and with them the battery sense and the header's analog pin.
+
+`GPIO4` and `GPIO5` are `MTMS`/`MTDI`, which are also SDIO-slave clock-edge
+strapping pins; `R17`/`R18` latch them high at reset and this board never uses
+the SDIO slave interface, so that is inert. See the strapping notes above.
+
+### Why external pull-ups, when the C6 has internal ones
 
 The internal pull-ups live in the digital IO domain and **drop out in deep
 sleep**. Keeping them alive across a deep sleep means explicitly enabling the
-*RTC* pull-ups (`rtc_gpio_pullup_en()`) on every one of these pins, and if that
+*LP/RTC* pull-ups (`rtc_gpio_pullup_en()`) on every one of these pins, and if that
 is missed — or reset by a later `gpio_config()`, or dropped by an IDF upgrade —
 six EXT1 wake sources float. Floating wake sources do not fail loudly; they
 produce phantom wakes that quietly drain the battery, which is a miserable bug
@@ -799,11 +904,11 @@ misconfigured. **100 kΩ, not 10 kΩ**: pressing a button costs 33 µA rather th
 overcome. Firmware may still enable the internal pull-ups in parallel — it is
 harmless, and costs nothing while the button is open.
 
-Note the net naming: these are `BTN_*`, never `EXP_IO*`. A net called `EXP_IO13`
+Note the net naming: these are `BTN_*`, never `EXP_IO*`. A net called `EXP_IO3`
 that is really the select button is exactly the sort of thing that produces a
-layout or firmware mix-up — and on the header side the same rule now runs the
-other way, where a pin with a job (`EXP_SPI_MOSI`, `EXP_ADC_A`) is named for the
-job and only the genuinely uncommitted spares keep an `EXP_IOnn` name.
+layout or firmware mix-up — and on the header side the same rule runs the other
+way, where a pin with a job (`EXP_SDA`, `EXP_ADC_IRQ`) is named for the job and
+only the genuinely uncommitted spare keeps an `EXP_IOnn` name (`EXP_IO8`).
 
 `SW1` (EN/RESET) and `SW2` (BOOT) use the same FSJM 6 × 6 mm through-hole part
 as `SW3`–`SW8` — they are no longer the `B3U-1000P` SMD switch.
@@ -818,7 +923,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 
 | Ref | Value / Part number | Package / mounting |
 |-----|--------------------|--------------------|
-| U1 | ESP32-S3-WROOM-1-N8 (quad flash, no PSRAM) | **Castellated module** (bottom pad optional) |
+| U1 | ESP32-C6-WROOM-1-N8 (8 MB quad flash) | **Castellated module** (bottom pad optional); footprint `Espressif:ESP32-C6-WROOM-1` |
 | U2 | MCP73831T-2ACI/OT (4.2 V) | **SOT-23-5** (hand-solderable SMD) |
 | U4 | **DW01A** 1S protection controller | **SOT-23-6** (hand-solderable SMD) |
 | Q2 | **FS8205A** dual N-MOSFET, common drain | **SOT-23-6** — *pinout is not the commonly-quoted one, see §4* |
@@ -841,11 +946,12 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | R11 | 2.2 Ω 1% (RESE sense) | 0805 |
 | R12,R13 | 10 kΩ (I²C temp pull-ups, **DNP**) | 0805 |
 | R14 | 100 kΩ (EPD CS pull-up) | 0805 |
-| R15 | 10 kΩ (GPIO3 strap pull-down, **required**) | 0805 |
+| R15 | 10 kΩ (GPIO15 JTAG-source strap pull-**up**, **required**) | 0805 |
 | R16 | 100 kΩ (EPD reset pull-down) | 0805 |
 | R17–R22 | 100 kΩ (SW3–SW8 button pull-ups) | 0805 |
 | R23 | 0 Ω (display VPP link) | 0805 |
 | R26,R27 | 4.7 kΩ (`J6` I²C pull-ups, **DNP**) | 0805 |
+| R28 | 10 kΩ (GPIO8 boot-mode strap pull-up, **required**) | 0805 |
 | C1,C2 | 4.7 µF (charger in/out) | 0805 X7R |
 | C3,C4 | 4.7 µF (LDO in/out) | 0805 X7R |
 | C18 | 47 µF (+3V3 output bulk) | 1206 X5R |
@@ -863,7 +969,7 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 | J3 | Turnigy BoltX LiHV 1S 300 mAh 3.8 V 80C (raw cell — protection is on-board, §4) | **JST-PH 2-pin** THT connector |
 | J4 | I²C temp sensor *(optional)* | **THT** 1×4 0.1" header |
 | J5 | UART console | **THT** 1×4 0.1" header |
-| J6 | GPIO expansion (SPI / I²C / ADC blocks, §7) | **THT** 2×10 0.1" header |
+| J6 | GPIO expansion (I²C / ADC+IRQ / spare, §7) | **THT** 2×4 0.1" header |
 | SW1–SW8 | Tactile push button, FSJM series 6 × 6 mm (EN/RESET, BOOT, D-pad, SELECT, CANCEL) | **THT** 4-pin 6 × 6 mm (Omron/Alps 6.5 × 4.5 mm pitch), `Button_Switch_THT:SW_PUSH_6mm` |
 
 ---
@@ -872,9 +978,9 @@ breakout adapter. **No exposed-pad (QFN/DFN) parts. No reflow required.**
 
 - **No reflow, no hot-air, no solder stencil is required.** Every part is
   attachable with a fine-tip soldering iron.
-- Solder the **ESP32-S3-WROOM-1-N8** via its edge castellations (drag-solder). Its
-  **bottom GND/thermal pad is redundant and may be left unsoldered** (GND is on
-  castellations 1 & 40) — no reflow needed.
+- Solder the **ESP32-C6-WROOM-1-N8** via its edge castellations (drag-solder,
+  1.27 mm pitch, 14 pads per side). Its **bottom GND/thermal pad is redundant and
+  may be left unsoldered** (GND is on castellations 1 & 28) — no reflow needed.
 - Neither regulator needs a heatsink, but both want copper — `U2` more than
   `U3`. See **§10** for the junction-temperature numbers and the layout rules.
 - SOT-23 / SOT-23-5 / SOT-23-6 / SOD-123 / SMA / 0805 / 1206 parts hand-solder
@@ -926,17 +1032,19 @@ shearing the part off the board than thermal benefit.
 | Load case | `PD` | `TJ` @231 °C/W | `TJ` @100.8 °C/W |
 |---|---|---|---|
 | Deep sleep | ~0 W | 25 °C | 25 °C |
-| Wi-Fi RX / connected (95 mA) | 0.086 W | 45 °C | 34 °C |
-| **Long processing, 240 MHz dual-core (108 mA)** | **0.097 W** | **47 °C** | **35 °C** |
-| Wi-Fi TX peak, 802.11b (355 mA, brief) | 0.320 W | 99 °C | 57 °C |
+| Wi-Fi RX, 802.11b/g/n HT20 (78 mA) | 0.070 W | 41 °C | 32 °C |
+| **Long processing, 160 MHz single-core (38 mA)** | **0.034 W** | **33 °C** | **28 °C** |
+| Wi-Fi TX peak, 802.11b (382 mA, brief) | 0.344 W | 104 °C | 60 °C |
 | Continuous 500 mA drawn via `J6` | 0.450 W | **129 °C** ✗ | 70 °C |
 
 Two things fall out of this table:
 
-- **A long compute session is not the thermal case.** At 240 MHz with both cores
-  running 128-bit accesses the module draws ~108 mA (module datasheet Table 6-6,
-  modem-sleep) — a *low-current* sustained load. 0.097 W is 47 °C of junction
-  temperature even on a deliberately bad board. It is a non-event.
+- **A long compute session is not the thermal case, and the C6 made it even less
+  of one.** In modem-sleep at 160 MHz with the CPU running and all peripheral
+  clocks enabled the module draws 38 mA (module datasheet Table 6-7) — a
+  *low-current* sustained load, and roughly a third of what the S3's 240 MHz
+  dual-core figure was. 0.034 W is 33 °C of junction temperature even on a
+  deliberately bad board. It is a non-event.
 - **The only case that breaches `TJ(MAX)` is a sustained half-amp pulled through
   the expansion header**, and copper alone takes it from 129 °C to 70 °C. That
   is the case the §2 warning is about, and it is fixed by layout rather than by
@@ -995,11 +1103,18 @@ that is `TJ` ≈ 87 °C; with the large copper area the datasheet mentions
 - **There is no reverse-polarity protection** — the old `D6` crowbar was removed
   because it would have been a 1 A diode standing in front of a 24 A cell with
   nothing to interrupt the fault (§4). Check cell polarity with a meter.
-- **`J6` is now a 2×10 expansion header organised in functional blocks** (SPI +
-  IRQ, I²C, two ADC1 inputs, six spare GPIOs — §7) rather than a 2×12 breaking
-  out the same GPIOs in numeric order. Getting Wi-Fi-safe analog onto it moved
-  the six user buttons from `GPIO2`/`GPIO10–14` to `GPIO14–18`/`GPIO21`; if you
-  have firmware from before this change, its button pin map is stale.
+- **The main processor is now the `ESP32-C6-WROOM-1-N8` (RISC-V), replacing the
+  `ESP32-S3-WROOM-1-N8` (Xtensa).** Same 18.0 × 25.5 × 3.1 mm outline, completely
+  different pads (29 pins vs 41) and a completely different pin map. **Any
+  firmware written against the S3 revision has a stale pin map — every GPIO
+  number on this board changed** — and the target must be rebuilt for
+  `esp32c6`. `U1` also needs Espressif's KiCad library installed; see the top of
+  this file.
+- **`J6` shrank from a 2×10 to a 2×4** (I²C pair, one ADC+wake pin, one spare —
+  §7). The C6 has 23 usable GPIOs against the S3's 36 and this design uses all
+  23, so four is what is left after the panel, buttons, USB, UART0 and the
+  strapping pins. The header's four-wire SPI block and its second ADC input are
+  gone; `R28` is a new required part (GPIO8 boot strap).
 - Component placement in the schematic is auto-generated and rough; connectivity
   is by global label.
 - **ERC has not been re-run since these changes** — `kicad-cli` was not available
